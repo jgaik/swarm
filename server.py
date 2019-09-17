@@ -18,6 +18,7 @@ class Client:
 
   def __enter__(self):
     self.server.connect((TCP_IP, TCP_PORT))
+    return self
 
   def __exit__(self, _, __, ___):
     self.server.close()
