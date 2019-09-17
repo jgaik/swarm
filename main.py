@@ -2,8 +2,7 @@ import server
 import tasks
 
 def main():
-	client = server.Client()
-	with client:
+	with server.Client() as client:
 		while True:
 			client.read(server.READ_MARKERS)
 
