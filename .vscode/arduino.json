@@ -1,5 +1,6 @@
 {
     "board": "arduino:avr:uno",
     "port": "/dev/ttyACM0",
-    "sketch": "robot/robot_unit.ino"
+    "sketch": "arduino/robot_unit.ino",
+    "programmer": "AVRISP mkII"
 }
