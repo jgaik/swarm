@@ -1,81 +1,118 @@
 import time
 import digi.xbee.devices as xb
+import struct
 
 BROADCAST = -1
 
+class Message:
+	_header = 255
+	_modulo = 256
+	_msg = b''
+	
+	def __init__(self, robotId, instruction, parametersList):
+		self.robotID = robotId
+		self.mode = instruction
+		self.parameters = parametersList
+		msgLength = len(parametersList) * 5 + 1
+		msgParts = []
+		msgParts.append(struct.pack("B", self._header))
+		msgParts.append(struct.pack("B", robotId))
+		msgParts.append(struct.pack("B", instruction))
+		msgParts.append(struct.pack("B", msgLength))
+		for param in parametersList:
+			msgParts.append(struct.pack("B", param[0]) + struct.pack(">f", param[1]))
+		
+		self._msg = b''.join(msgParts)
+		self._msg = self._msg + struct.pack("B", self.getCheckSum())
+
+	def getCheckSum(self):
+		return self._modulo- sum(bytearray(self._msg)[1:]) % self._modulo - 1
+	
+	@classmethod
+	def fromArray(cls, msgArray):
+		pass
+
+	def __run__(self):
+		return self._msg
+
+
 class Robot:
-  
-  def __init__(self, addressString, deviceXbee):
-    self.robotAddress = xb.XBee16BitAddress.from_hex_string(addressString)
-    self.device = deviceXbee
-    self.fields = {}
+	
+	def __init__(self, addressString, deviceXbee):
+		self.robotAddress = xb.XBee16BitAddress.from_hex_string(addressString)
+		self.device = deviceXbee
+		self.fields = {}
 
-  def getDevice(self):
-    return self.device
-  
-  def getAddress(self):
-    return self.robotAddress
+	def getDevice(self):
+		return self.device
+	
+	def getAddress(self):
+		return self.robotAddress
 
-  def addFields(self, fieldEntries):
-    pass
+	def addFields(self, fieldEntries):
+		pass
 
-  def getField(self, fieldKey):
-    pass
+	def getField(self, fieldKey):
+		pass
 
-  @classmethod
-  def createFromList(cls, stringList):
-    pass
+	@classmethod
+	def createFromList(cls, stringList):
+		pass
 
-  @staticmethod
-  def getDeviceFromList(robotList, addressString):
-    pass
+	@staticmethod
+	def getDeviceFromList(robotList, addressString):
+		pass
 
 class RobotNetwork:
-  xbPortnum = "/dev/ttyUSB0"
-  xbBaudrate = "9600"
-  xbNetDiscoveryTimeOut = 5
+	xbPortnum = "/dev/ttyUSB0"
+	xbBaudrate = "9600"
+	xbNetDiscoveryTimeOut = 5
 
-  def __init__(self, portnum = xbPortnum, baudrate = xbBaudrate):
-    self.xbBaudrate = baudrate
-    self.xbPortnum = portnum
-    self.xbDevice = xb.XBeeDevice(self.xbPortnum, self.xbBaudrate)
-    self.xbRemotes = None
-  
-  def __enter__(self):
-    print("[Xbee network]: Initialising..")
-    self.xbDevice.open()
-    self.xbNet = self.xbDevice.get_network()
-    self.updateNetwork()
-    self.xbDevice.add_data_received_callback(self.recvDataCallback)
-    print(f"[Xbee Network]: Initialisation finished.")
-    return self
+	def __init__(self, portnum = xbPortnum, baudrate = xbBaudrate):
+		self.xbBaudrate = baudrate
+		self.xbPortnum = portnum
+		self.xbDevice = xb.XBeeDevice(self.xbPortnum, self.xbBaudrate)
+		self.xbRemotes = None
+	
+	def __enter__(self):
+		print("[Xbee network]: Initialising..")
+		self.xbDevice.open()
+		self.xbNet = self.xbDevice.get_network()
+		self.updateNetwork()
+		self.xbDevice.add_data_received_callback(self.recvDataCallback)
+		print(f"[Xbee Network]: Initialisation finished.")
+		return self
 
-  def __exit__(self, _, __, ___):
-    self.xbDevice.del_data_received_callback(self.recvDataCallback)
-    self.xbDevice.close()
+	def __exit__(self, _, __, ___):
+		self.xbDevice.del_data_received_callback(self.recvDataCallback)
+		self.xbDevice.close()
 
-  def updateNetwork(self, discoveryTimeOut = xbNetDiscoveryTimeOut):
-    if self.xbDevice._is_open:
-      print(f"[Xbee Network]: Network discovery process.")
-      self.xbNet.set_discovery_timeout(self.xbNetDiscoveryTimeOut)
-      self.xbNet.start_discovery_process()
-      while self.xbNet.is_discovery_running():
-        time.sleep(0.5)
-        print(".")
-      self.xbRemotes = self.xbNet.get_devices()
-      print(f"[Xbee Network]: {len(self.xbRemotes)} remote devices found.")
-    else:
-      print(f"[Xbee Network]: Device not open.")
-  
-  def sendData(self, data, robotAddress = BROADCAST):
-    if robotAddress == BROADCAST:
-      self.xbDevice.send_data_broadcast(data)
-    else:
-      remote = self.xbNet.get_device_by_16(xb.XBee16BitAddress.from_hex_string(str(robotAddress)))
-      if remote is not None:
-        self.xbDevice.send_data_async(remote, data)
-      else:
-        print(f"[Xbee Network]: Unknown robotAddress ({robotAddress}).")
-  
-  def recvDataCallback(self, xbeeMsg):
-    pass
+	def updateNetwork(self, discoveryTimeOut = xbNetDiscoveryTimeOut):
+		if self.xbDevice._is_open:
+			print(f"[Xbee Network]: Network discovery process.")
+			self.xbNet.set_discovery_timeout(self.xbNetDiscoveryTimeOut)
+			self.xbNet.start_discovery_process()
+			while self.xbNet.is_discovery_running():
+				time.sleep(0.5)
+				print(".")
+			self.xbRemotes = self.xbNet.get_devices()
+			print(f"[Xbee Network]: {len(self.xbRemotes)} remote devices found.")
+		else:
+			print(f"[Xbee Network]: Device not open.")
+	
+	def sendData(self, data, robotAddress = BROADCAST):
+		if robotAddress == BROADCAST:
+			self.xbDevice.send_data_broadcast(data)
+		else:
+			remote = self.xbNet.get_device_by_16(xb.XBee16BitAddress.from_hex_string(str(robotAddress)))
+			if remote is not None:
+				self.xbDevice.send_data_async(remote, data)
+			else:
+				print(f"[Xbee Network]: Unknown robot address ({robotAddress}).")
+	
+	def recvDataCallback(self, xbeeMsg):
+		pass
+
+	@staticmethod
+	def prepareMsg():
+		pass
