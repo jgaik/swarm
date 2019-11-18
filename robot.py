@@ -4,6 +4,7 @@ import struct
 
 ROBOTPATH_LINE = 1
 ROBOTPATH_ARC = 2
+ROBOTPATH_VELOCITY = 3
 ROBOTNET_BROADCAST = 255
 
 class Message:
@@ -68,7 +69,7 @@ class Robot:
 		for rbt in robotList:
 			if rbt.getID() == robotID:
 				return rbt.getDevice()
-		raise Exception(f"!!![Xbee Network]: Unknown robot address ({robotID})!!!")
+		raise Exception(f"[Xbee Network]: !!!Unknown robot address ({robotID})!!!")
 
 class RobotNetwork:
 	xbPortnum = "/dev/ttyUSB0"
@@ -106,7 +107,7 @@ class RobotNetwork:
 			self.robotList = Robot.createFromList(self.xbNet.get_devices())
 			print(f"[Xbee Network]: {len(self.robotList)} remote device(s) found.")
 		else:
-			print(f"!!![Xbee Network]: Device not open!!!")
+			print(f"[Xbee Network]: !!!Device not open!!!")
 	
 	def __sendData(self, data, robotID):
 		msg = Message(robotID, data["mode"], data["params"])
@@ -124,11 +125,20 @@ class RobotNetwork:
 		print(xbeeMsg.data.decode('utf-8'))
 	
 	def setRobotVelocity(self, robotID, pathMode, pathParameters):
-		"""pathParameters order [velocity, distance/angle, radius (for arc)]"""
+		"""Set velocities of the 'robotID' robot
+		:param pathMode: path mode of the setting
+		:param pathParameters: parameters in order:
+			_LINE [velocity, distance]
+			_ARC [velocity, angle distance, radius]
+			_VELOCITY [velocityLeft, velocityRight]
+		"""
 		if pathMode == ROBOTPATH_ARC:
-			assert (len(pathParameters) == 3), f"!!![Xbee Network]: Wrong number of path parameters ({pathParameters})!!!"
+			assert (len(pathParameters) == 3), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
+			assert (pathParameters[2] != 0 ), f"[Xbee Network]: !!!Incorect parameter - arc radius cannot be 0!!!"
 		if pathMode == ROBOTPATH_LINE:
-			assert (len(pathParameters) == 2), f"!!![Xbee Network]: Wrong number of path parameters ({pathParameters})!!!"
+			assert (len(pathParameters) == 2), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
+		if pathMode == ROBOTPATH_VELOCITY:
+			assert (len(pathParameters) == 2), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
 		data = {}
 		data["mode"] = pathMode
 		data["params"] = []

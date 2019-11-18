@@ -1,9 +1,8 @@
 import socket
 import json
-import time
 
-TCP_IP = '192.168.0.12'
-TCP_PORT = 5050
+TCP_IP = '192.168.43.95'
+TCP_PORT = 2020
 HEADER_LEN = 10
 BUFFER_LEN = 16
 
@@ -11,7 +10,6 @@ READ_RESPONSE = '0'
 READ_MARKERS = '1'
 
 class Client:
-  counter = []
 
   def __init__(self):
     self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -27,7 +25,6 @@ class Client:
     msgLength = 0
     msgFull = ''
     newMsg = True
-    t = time.time()
     self.server.sendall(readMethod.encode('utf-8'))
     while True:
       msg = self.server.recv(BUFFER_LEN)
@@ -38,7 +35,6 @@ class Client:
       msgFull += msg.decode('utf-8')
 
       if len(msgFull) - HEADER_LEN >= msgLength:
-        self.counter.append((time.time() - t)*1000)
         msgFull = json.loads(msgFull[HEADER_LEN:])
         break
         
