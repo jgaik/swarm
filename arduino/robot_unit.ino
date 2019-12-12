@@ -1,9 +1,12 @@
-#define sgn(x) ((x) < 0 ? LOW : HIGH)
-#define BAUDRATE 9600
+#define dir(x) ((x) < 0 ? HIGH : LOW)
+#define sgn(x) ((x) < 0 ? -1 : 1)
 
-const uint8_t pinEncoderALeft = 2;
+/*
+SETTING: Pin values
+*/
+const uint8_t pinEncoderALeft = 3;
 const uint8_t pinEncoderBLeft = 5;
-const uint8_t pinEncoderARight = 3;
+const uint8_t pinEncoderARight = 2;
 const uint8_t pinEncoderBRight = 6;
 const uint8_t pinWheelLeftDir = 7;
 const uint8_t pinWheelRightDir = 8;
@@ -12,37 +15,40 @@ const uint8_t pinWheelRightSpeed = 10;
 
 const uint8_t pinPotentiometer = A5;
 const uint8_t pinButton = 4;
+//
+/*
+SETTING: Robot data
+*/
+#define MODE_NONE 0
+#define MODE_PATHLINE 1
+#define MODE_PATHARC 2
+#define MODE_PATHTURN 3
+#define MODE_PATHVELOCITY 4
 
-volatile int wheelCounterLeft = 0;
-volatile int wheelCounterRight = 0;
-unsigned long timeSaved = 0;
-unsigned long timeDelta = 50;
-unsigned long timeLastDebounce = 0;
+#define STATUS_IDLE 0
+#define STATUS_REC_OK 1
+#define STATUS_REC_ERR 2
 
-#define WHEEL_RADIUS 21
-#define WHEEL_DIST 89
-#define WHEEL_VEL_LIMIT 400
-#define K 75*12
-#define VELCONTROL_P 100
-float wheelLeftOmega = 0;
-float wheelRightOmega = 0;
-float robotPosX = 0;
-float robotPosY = 0;
-float robotOrient = 0;
-float distanceTraveled = 0;
+uint8_t robotMode = MODE_NONE;
+uint8_t robotStatus = STATUS_IDLE;
 
+#define ROBOTSTATE_LEN 3
+#define ROBOTSENSOR_LER 1
+#define PARAMETER_BYTE_LEN 4
+float robotState[ROBOTSTATE_LEN] = {};
+float robotSensor[ROBOTSENSOR_LER] =   {};
+//
+/*
+SETTING: Message read
+*/
+#define BAUDRATE 9600
 #define MSG_NONE 0
 #define MSG_READ 1
 #define MSG_END 2
 #define MSG_ERROR 3
 #define HEADER '*'
 
-#define MODE_NONE 0
-#define MODE_PATHLINE 1
-#define MODE_PATHARC 2
-#define MODE_PATHVELOCITY 3
-
-#define BUFFERLEN_MSG 20
+#define MSG_BUFFERLEN 20
 
 const size_t idxRobotID = 0;
 const size_t idxRobotMode = 1;
@@ -52,106 +58,124 @@ const size_t msgModeLen = 3;
 
 int readStatus = MSG_NONE;
 size_t msgReadCount = 0;
-uint8_t msgBuffer[BUFFERLEN_MSG] = {};
+uint8_t msgBuffer[MSG_BUFFERLEN] = {};
+//
+/*
+SETTING: Odometry
+*/
+#define WHEEL_RADIUS 21
+#define WHEEL_DIST 89
+#define K 75*3
 
-uint8_t robotMode = MODE_NONE;
-uint8_t robotStatus;
+volatile long wheelCounterLeft = 0;
+volatile long wheelCounterRight = 0;
+unsigned long timeSaved = 0;
+unsigned long timeDelta = 10;
 
-#define ROBOTSTATE_LEN 3
-#define ROBOTSENSOR_LER 1
-#define PARAMETER_BYTE_LEN 4
-uint8_t robotState[ROBOTSTATE_LEN][PARAMETER_BYTE_LEN] = {};
-uint8_t robotSensor[ROBOTSENSOR_LER][PARAMETER_BYTE_LEN] ={};
+float wheelLeftOmega = 0;
+float wheelRightOmega = 0;
+float wheelLeftDistance = 0;
+float wheelRightDistance = 0;
+float robotDistance = 0;
+float robotOrient = 0;
+//
+/*
+SETTING: Velocity control
+*/
+#define WHEEL_VEL_LIMIT 1.0f
 
-uint8_t buttonState;
-uint8_t buttonStateLast = LOW;
-
+const unsigned long timeIdle = 3000;
+unsigned long timeTraveled = 0;
+//
 void setup() {
 	pinMode(pinWheelLeftDir, OUTPUT);
 	pinMode(pinWheelRightDir, OUTPUT);
 	pinMode(pinWheelLeftSpeed, OUTPUT);
 	pinMode(pinWheelRightSpeed, OUTPUT);
-	pinMode(pinButton, INPUT);
-	pinMode(pinPotentiometer, INPUT);
 
-	attachInterrupt(digitalPinToInterrupt(pinEncoderALeft), encoderCounterLeft, CHANGE);
-	attachInterrupt(digitalPinToInterrupt(pinEncoderARight), encoderCounterRight, CHANGE);
+	pinMode(pinEncoderALeft, INPUT);
+	pinMode(pinEncoderARight, INPUT);
+	pinMode(pinEncoderBLeft, INPUT);
+	pinMode(pinEncoderBRight, INPUT);
+
+	attachInterrupt(digitalPinToInterrupt(pinEncoderALeft), encoderCounterLeft, RISING);
+	attachInterrupt(digitalPinToInterrupt(pinEncoderARight), encoderCounterRight, RISING);
 	Serial.begin(BAUDRATE);
-	digitalWrite(pinWheelLeftDir, HIGH);
-	digitalWrite(pinWheelRightDir, HIGH);
 }
 
 void loop() {
 	readCommand();
 	changeRobotState();
-	checkButton();
 	setVelocities();
-	calculateParams();
+	odometry();
 }
 
-void checkButton() {
-	uint8_t reading = digitalRead(pinButton);
-	noInterrupts();
-	if (reading != buttonStateLast) {
-		timeLastDebounce = millis();
-	}
+void test() {
+	/*digitalWrite(pinWheelLeftDir, LOW);
+	digitalWrite(pinWheelRightDir, LOW);
 
-	if ( (millis() - timeLastDebounce) > timeDelta ) {
-		if (reading != buttonState) {
-			buttonState = reading;
-			if (buttonState == HIGH) {
-				resetRobotState();
-			}
-		}
+	if (timeTraveled < 11000 && timeTraveled > 10000) {
+		analogWrite(pinWheelLeftSpeed, 255);	
 	}
-	interrupts();
+	else {
+		analogWrite(pinWheelLeftSpeed, 0);	
+		Serial.println("time: " + (String)timeTraveled);
+		Serial.println("dL: " + (String)wheelLeftDistance + " dR: " + (String)wheelRightDistance);
+	}	*/
+	robotState[0] = 0.5f;
+	robotState[1] = PI;
 }
 
-void encoderCounterLeft() {
-	int chA = digitalRead(pinEncoderALeft);
-	int chB = digitalRead(pinEncoderBLeft);
-	if ( (chA == HIGH && chB == HIGH) || (chA == LOW && chB == LOW) )
-		wheelCounterLeft--;
-	else
-		wheelCounterLeft++;
+void encoderCounterLeft() {	
+	//if (digitalRead(pinEncoderALeft) == HIGH) {
+		if (digitalRead(pinEncoderBLeft) == LOW) 
+			wheelCounterLeft--;
+		else
+			wheelCounterLeft++;
+	/*} else {
+		if (digitalRead(pinEncoderBLeft) == HIGH) 
+			wheelCounterLeft--;
+		else
+			wheelCounterLeft++;
+	}*/
 }
 
 void encoderCounterRight() {
-	int chA = digitalRead(pinEncoderARight);
-	int chB = digitalRead(pinEncoderBRight);
-	if ( (chA == HIGH && chB == HIGH) || (chA == LOW && chB == LOW) )
-		wheelCounterRight++;
-	else
-		wheelCounterRight--;
+	//if (digitalRead(pinEncoderARight) == HIGH) {
+		if (digitalRead(pinEncoderBRight) == LOW) 
+			wheelCounterRight++;
+		else
+			wheelCounterRight--;
+	/*} else {
+		if (digitalRead(pinEncoderBRight) == HIGH) 
+			wheelCounterRight++;
+		else
+			wheelCounterRight--;
+	}*/
 }
 
-void calculateParams() {
-	if (millis() - timeSaved >= timeDelta) {
+void odometry() {
+	unsigned long timeDiff = millis() - timeSaved;
+	if (timeDiff >= timeDelta) {
 		timeSaved = millis();
+		timeTraveled += timeDiff;
 		noInterrupts();
-		wheelLeftOmega = wheelCounterLeft / (K * timeDelta);
-		wheelRightOmega = wheelCounterRight / (K * timeDelta);
-		float drL = 2 * PI * wheelCounterLeft * WHEEL_RADIUS / K;
-		float drR = 2 * PI * wheelCounterRight * WHEEL_RADIUS / K;
-		float dr = (drL + drR) / 2;
-		float dfi = (drL - drR) / WHEEL_DIST;
-		switch (robotMode) {
-			case MODE_PATHLINE:
-				distanceTraveled += dr;
-				break;
-			case MODE_PATHARC:
-				distanceTraveled += abs(dfi);
-				break;
-			default:
-				robotOrient += dfi;
-				robotPosX += dr * cos(robotOrient);
-				robotPosY += dr * sin(robotOrient);
-				break;
-		}
+		//wheelLeftOmega = (float)wheelCounterLeft / (K * timeDiff) * 1000;
+		//wheelRightOmega = (float)wheelCounterRight / (K * timeDiff) * 1000;
+		float drL = 2 * PI * (float)wheelCounterLeft * WHEEL_RADIUS / (K);
+		float drR = 2 * PI * (float)wheelCounterRight * WHEEL_RADIUS / (K);
 		wheelCounterRight = 0;
 		wheelCounterLeft = 0;
 		interrupts();
-		//Serial.println("x: " + (String)robotPosX + " y: " + (String)robotPosY + " orient: " + (String)robotOrient);
+		//float dr = (drL + drR) / 2;
+		//float dfi = (drR - drL) / WHEEL_DIST;
+		wheelLeftDistance += drL;
+		wheelRightDistance += drR;
+		//robotOrient += dfi;
+		//robotDistance += dr;
+		
+		//Serial.println("timeTraveled: " + (String)timeTraveled);
+		//Serial.println("dL: " + (String)wheelLeftDistance + " dR: " + (String)wheelRightDistance);
 	}	
 }
 
@@ -175,7 +199,7 @@ bool checkMsg() {
 }
 
 void flushBuffer() {
-	for (size_t idx = 0; idx < BUFFERLEN_MSG; idx++)
+	for (size_t idx = 0; idx < MSG_BUFFERLEN; idx++)
 		msgBuffer[idx] = 0;
 }
 
@@ -186,16 +210,24 @@ void readCommand() {
 			case MSG_NONE:
 				if (readSymbol == HEADER)
 					readStatus = MSG_READ;
+				else
+					robotStatus = STATUS_REC_ERR;
+					sendStatus();
 				break;
 			case MSG_READ:
 				if (msgReadCount < msgBuffer[idxMsgLen] + msgModeLen) {
 					msgBuffer[msgReadCount] = (uint8_t)readSymbol;
 					msgReadCount++;
 				} else {
-					if (checkMsg())
+					if (checkMsg()) {
 						readStatus = MSG_END;
-					else
+						robotStatus = STATUS_REC_OK;
+					}
+					else {
 						readStatus = MSG_ERROR;
+						robotStatus = STATUS_REC_ERR;
+						sendStatus();
+					}
 					
 					msgReadCount = 0;
 				}
@@ -206,68 +238,125 @@ void readCommand() {
 	}
 }
 
+void sendStatus() {
+	Serial.println(robotStatus);
+}
+
 void resetRobotState() {
 	robotMode = MODE_NONE;
 	for (size_t idx = 0; idx < ROBOTSTATE_LEN; idx++) {
-		for (size_t idxByte = 0; idxByte < PARAMETER_BYTE_LEN; idxByte++) {
-				robotState[idx][idxByte] = 0;
-			}
+		robotState[idx] = 0;
 	}
 }
 
 void changeRobotState() {
 	if (readStatus == MSG_END) {
-		Serial.println("[Arduino Robot]: New msg read");
+		sendStatus();
 		robotMode = msgBuffer[idxRobotMode];
 		for (size_t idx = 0; idx < msgBuffer[idxMsgLen] - 1; idx += PARAMETER_BYTE_LEN + 1) {
+			uint8_t buffer[PARAMETER_BYTE_LEN] = {};
 			for (size_t idxByte = 0; idxByte < PARAMETER_BYTE_LEN; idxByte++) {
-				robotState[(size_t)msgBuffer[idx + idxParamStart]][idxByte] = msgBuffer[idx + idxParamStart + idxByte + 1];
+				buffer[idxByte] = msgBuffer[idx + idxParamStart + idxByte + 1];
 			}
+			robotState[(size_t)msgBuffer[idx + idxParamStart]] = convertBytes2Float(buffer);
 		}
-		String param_status = "";
-		Serial.print("[Arduino Robot]: Robot parameters set: ");
-		for (size_t idx = 0; idx < ROBOTSTATE_LEN; idx++) {
-			param_status += (String)idx + ": " + (String)convertBytes2Float(robotState[idx]) + " ";
-		}
-		Serial.println(param_status);
 		flushBuffer();
 		readStatus = MSG_NONE;
+		timeTraveled = 0;
+		wheelLeftDistance = 0.0f;
+		wheelRightDistance = 0.0f;
+		robotDistance = 0.0f;
+		robotOrient = 0.0f;
 	}
 }
 
-float velocityControl(float velocitySet, float distGoal) {
-	float distError = distGoal - distanceTraveled;
-	float velocityOut = VELCONTROL_P * distError;
-	return velocityOut > abs(velocitySet) ? velocitySet : sgn(velocitySet)*velocityOut;
+int trajectory(float distance, unsigned long timeFinal, float &velocity, float &distanceTraveled) {
+	float velConst = 0.5f;
+	float blend = 0.15f;
+	float t = (float)timeTraveled / timeFinal;
+	float velMax = distance / timeFinal / (1 - blend) / velConst;
+	if (velMax > 1.0f)
+		return 1;
+
+	if (t < blend) {
+		distanceTraveled = distance * ( t * t / 2 / blend ) / (1 - blend);
+		velocity = velMax * ( t / blend );
+		return 0;
+	}
+	if (t < 1.0f - blend) {
+		distanceTraveled = distance * ( t - blend/2 ) / (1 - blend);
+		velocity = velMax;
+		return 0;
+	}
+	if (t < 1.0f) {
+		distanceTraveled = distance * ( t - blend/2 - (t - 1 + blend)*(t - 1 + blend)/2/blend ) / (1 - blend);
+		velocity = velMax * ( (1 - t) / blend );
+		return 0;
+	} else {
+		distanceTraveled = distance * 1.0;
+		velocity = 0.0f;
+		return 1;
+	}
+}
+
+void velocityControl(float& velocityL, float& velocityR, float goalDistL, float goalDistR) {
+	float errorL = goalDistL - wheelLeftDistance;
+	float errorR = goalDistR - wheelRightDistance;
 }
 
 void setVelocities() {
 	float velL, velR;
+	float dist, distL, distR;
+	unsigned long timeF = (unsigned long) (robotState[0] * 1000);
+
+	int errorCode = 0;
+
 	switch (robotMode) {
 		case MODE_NONE:
-			velL = 0;
-			velR = 0;
+		{	
+			velL = 0.0f;
+			velR = 0.0f;
 			break;
+		}
+
 		case MODE_PATHLINE:
-			velL = velocityControl(convertBytes2Float(robotState[0]), convertBytes2Float(robotState[1]));
-			velR = velL;
+		{
+			dist = robotState[1];
+			errorCode += trajectory(dist, timeF, velL, distL);
+			errorCode += trajectory(dist, timeF, velR, distR);
 			break;
+		}
 		case MODE_PATHARC:
-			float radius = convertBytes2Float(robotState[2]);
-			float velMid = velocityControl(convertBytes2Float(robotState[0]), convertBytes2Float(robotState[1]));
-			float omega = velMid / abs(radius);
-			if (omega * (abs(radius) + WHEEL_DIST / 2) > WHEEL_VEL_LIMIT)
-				omega = WHEEL_VEL_LIMIT / (abs(radius) + WHEEL_DIST / 2);
-			velL = omega * (abs(radius) - sgn(radius)* WHEEL_DIST / 2);
-			velR = omega * (abs(radius) + sgn(radius)* WHEEL_DIST / 2);
+		{
 			break;
+		}
+		case MODE_PATHTURN:
+		{
+			float angle = robotState[1];
+			dist = angle*WHEEL_DIST/2;
+			
+			errorCode += trajectory(-dist, timeF, velL, distL);
+			errorCode += trajectory(dist, timeF, velR, distR);
+			break;
+		}
 		case MODE_PATHVELOCITY:
-			velL = convertBytes2Float(robotState[0]);
-			velR = convertBytes2Float(robotState[1]);
+		{
+			if (timeTraveled < timeIdle) {
+				velL = constrain(robotState[0], -WHEEL_VEL_LIMIT, WHEEL_VEL_LIMIT);
+				velR = constrain(robotState[1], -WHEEL_VEL_LIMIT, WHEEL_VEL_LIMIT);
+			} else {
+				errorCode = 1;
+			}
 			break;
+		}
 	}
-	analogWrite(pinWheelLeftSpeed, (int)constrain(abs(velL), 0, WHEEL_VEL_LIMIT));
-	digitalWrite(pinWheelLeftDir, sgn(-velL));
-	analogWrite(pinWheelRightSpeed, (int)constrain(abs(velR), 0, WHEEL_VEL_LIMIT));
-	digitalWrite(pinWheelRightDir, sgn(-velR));
+	if (errorCode == 0) {
+		digitalWrite(pinWheelLeftDir, dir(velL));
+		digitalWrite(pinWheelRightDir, dir(velR));
+
+		analogWrite(pinWheelRightSpeed, (int)abs(velR * 255));	
+		analogWrite(pinWheelLeftSpeed, (int)abs(velL * 255));
+	} else {
+		robotMode = MODE_NONE;
+	}
 }
