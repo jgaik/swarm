@@ -4,8 +4,13 @@ import struct
 
 ROBOTPATH_LINE = 1
 ROBOTPATH_ARC = 2
-ROBOTPATH_VELOCITY = 3
+ROBOTPATH_TURN = 3
+ROBOTPATH_VELOCITY = 4
 ROBOTNET_BROADCAST = 255
+
+ROBOTSTATUS_IDLE = 0
+ROBOTSTATUS_REC_OK = 1
+ROBOTSTATUS_REC_ERR = 2
 
 class Message:
 	_header = '*'
@@ -38,38 +43,40 @@ class Message:
 	def fromArray(cls, msgArray):
 		pass
 
-class Robot:
-	
-	def __init__(self, addressString, deviceXbee):
-		self.robotId = addressString.get_lsb()
-		self.device = deviceXbee
-		self.fields = {}
+class RobotList:
 
-	def getDevice(self):
-		return self.device
-	
-	def getID(self):
-		return self.robotId
+	def __init__(self, xbeeList):
+		self.ids = []
+		self.devices = []
+		self.status = []
+		for dev in xbeeList:
+			self.ids.append(dev.get_16bit_addr().get_lsb())
+			self.devices.append(dev)
+			self.status.append(ROBOTSTATUS_IDLE)
 
-	def addFields(self, fieldEntries):
-		pass
+	def __call__(self, robotId) -> xb.RemoteXBeeDevice:
+		try:
+			return self.devices[self.ids.index(robotId)]
+		except ValueError:
+			print(f"[Xbee Network]: !!!Unknown robot address ({robotId})!!!")
 
-	def getField(self, fieldKey):
-		pass
+	def getStatus(self, robotId):
+		try:
+			return self.status[self.ids.index(robotId)]
+		except ValueError:
+			print(f"[Xbee Network]: !!!Unknown robot address ({robotId})!!!")
 
-	@classmethod
-	def createFromList(cls, deviceList):
-		robotList = []
-		for dev in deviceList:
-			robotList.append(cls(dev.get_16bit_addr(), dev))
-		return robotList
+	def setStatus(self, robotId, statusCode):
+		assert (statusCode in [ROBOTSTATUS_IDLE, ROBOTSTATUS_REC_ERR, ROBOTSTATUS_REC_OK]),\
+				f"[Xbee Network]: !!!Unknown status code!!!"
+		try:
+			self.status[self.ids.index(robotId)] = statusCode
+		except ValueError:
+			print(f"[Xbee Network]: !!!Unknown robot address ({robotId})!!!")
 
-	@staticmethod
-	def getDeviceFromList(robotList, robotID) -> xb.RemoteXBeeDevice:
-		for rbt in robotList:
-			if rbt.getID() == robotID:
-				return rbt.getDevice()
-		raise Exception(f"[Xbee Network]: !!!Unknown robot address ({robotID})!!!")
+	def getLength(self):
+		return len(self.ids)
+
 
 class RobotNetwork:
 	xbPortnum = "/dev/ttyUSB0"
@@ -85,9 +92,9 @@ class RobotNetwork:
 	def __enter__(self):
 		print("[Xbee network]: Initialising..")
 		self.xbDevice.open()
-		self.xbDevice.add_data_received_callback(self.recvDataCallback)
 		self.xbNet = self.xbDevice.get_network()
 		self.updateNetwork()
+		self.xbDevice.add_data_received_callback(self.recvDataCallback)
 		print(f"[Xbee Network]: Initialisation finished.")
 		return self
 
@@ -104,8 +111,8 @@ class RobotNetwork:
 			while self.xbNet.is_discovery_running():
 				time.sleep(0.5)
 				print(".")
-			self.robotList = Robot.createFromList(self.xbNet.get_devices())
-			print(f"[Xbee Network]: {len(self.robotList)} remote device(s) found.")
+			self.robotList = RobotList(self.xbNet.get_devices())
+			print(f"[Xbee Network]: {self.robotList.getLength()} remote device(s) found.")
 		else:
 			print(f"[Xbee Network]: !!!Device not open!!!")
 	
@@ -115,27 +122,41 @@ class RobotNetwork:
 			self.xbDevice.send_data_broadcast(msg())
 		else:
 			try:
-				remote = Robot.getDeviceFromList(self.robotList, robotID)
+				remote = self.robotList(robotID)
 				print(f"[Xbee Network]: Sending message: {msg()}.")
 				self.xbDevice.send_data_async(remote, msg())
-			except Exception as exc:
-				print(exc)
+			except:
+				print(f"[Xbee Network]: !!!Error sending the data to device {robotID}!!!")
 	
 	def recvDataCallback(self, xbeeMsg: xb.XBeeMessage):
+		id = xbeeMsg.remote_device.get_16bit_addr().get_lsb()
+		self.robotList.setStatus(id, xbeeMsg.data.decode('utf-8'))
+		""" try:
+			if (len(xbeeMsg.data.decode('utf-8')) == 1):
+				sender = next((x for x in self.robotList if x.getId() == id))
+				sender.changeStatus(xbeeMsg.data.decode('utf-8'))
+			
+		except:
+			print(f"[Xbee Network]: !!!Error while receiving the data from {id}!!!") """
+		
+		print(f"Robot {id} data:")
 		print(xbeeMsg.data.decode('utf-8'))
 	
 	def setRobotVelocity(self, robotID, pathMode, pathParameters):
 		"""Set velocities of the 'robotID' robot
 		:param pathMode: path mode of the setting
 		:param pathParameters: parameters in order:
-			_LINE [velocity, distance]
-			_ARC [velocity, angle distance, radius]
+			_LINE [time, distance]
+			_ARC [time, angle distance, radius]
+			_TURN [time, angle distance]
 			_VELOCITY [velocityLeft, velocityRight]
 		"""
 		if pathMode == ROBOTPATH_ARC:
 			assert (len(pathParameters) == 3), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
 			assert (pathParameters[2] != 0 ), f"[Xbee Network]: !!!Incorect parameter - arc radius cannot be 0!!!"
 		if pathMode == ROBOTPATH_LINE:
+			assert (len(pathParameters) == 2), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
+		if pathMode == ROBOTPATH_TURN:
 			assert (len(pathParameters) == 2), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
 		if pathMode == ROBOTPATH_VELOCITY:
 			assert (len(pathParameters) == 2), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
