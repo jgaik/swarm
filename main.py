@@ -1,10 +1,13 @@
 import server
+import robot
 import tasks
 
 def main():
-	with server.Client() as client:
+	with robot.RobotNetwork() as swarmNet:
+		while (swarmNet.robotList.getStatus(1) == robot.ROBOTSTATUS_IDLE):
+			swarmNet.setRobotVelocity(1, robot.ROBOTPATH_LINE, [0.20, 200])
 		while True:
-			print(client.read(server.READ_MARKERS))
+			pass
 
 
 if __name__ == "__main__":

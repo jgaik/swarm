@@ -5,6 +5,17 @@
 		}
 	],
 	"settings": {
-		"editor.tabSize": 2
+		"editor.tabSize": 2,
+		"files.associations": {
+			"*.tcc": "cpp",
+			"memory": "cpp",
+			"istream": "cpp",
+			"sstream": "cpp",
+			"streambuf": "cpp",
+			"typeinfo": "cpp",
+			"atomic": "cpp",
+			"utility": "cpp",
+			"complex": "cpp"
+		}
 	}
 }

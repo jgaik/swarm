@@ -3,8 +3,6 @@
         {
             "name": "Linux",
             "includePath": [
-                "/home/jgaik/Arduino/libraries/DualMAX14870MotorShield",
-                "/home/jgaik/Arduino/libraries/XBee-Arduino_library",
                 "/home/jgaik/Downloads/arduino-1.8.9/tools/**",
                 "/home/jgaik/Downloads/arduino-1.8.9/hardware/arduino/avr/**",
                 "/home/jgaik/Downloads/arduino-1.8.9/hardware/tools",
