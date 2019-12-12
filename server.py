@@ -1,8 +1,6 @@
 import socket
 import json
 
-TCP_IP = '192.168.43.95'
-TCP_PORT = 2020
 HEADER_LEN = 10
 BUFFER_LEN = 16
 
@@ -10,12 +8,16 @@ READ_RESPONSE = '0'
 READ_MARKERS = '1'
 
 class Client:
+  svTcpIP = '192.168.43.95'
+  svTcpPort = 2020
 
-  def __init__(self):
+  def __init__(self, tcp_ip = svTcpIP, tcp_port = svTcpPort):
+    self.svTcpIP = tcp_ip
+    self.svTcpPort = tcp_port
     self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
   def __enter__(self):
-    self.server.connect((TCP_IP, TCP_PORT))
+    self.server.connect((self.svTcpPort, self.svTcpPort))
     return self
 
   def __exit__(self, _, __, ___):
