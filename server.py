@@ -17,7 +17,7 @@ class Client:
     self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
   def __enter__(self):
-    self.server.connect((self.svTcpPort, self.svTcpPort))
+    self.server.connect((self.svTcpIP, self.svTcpPort))
     return self
 
   def __exit__(self, _, __, ___):

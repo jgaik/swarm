@@ -1,13 +1,16 @@
 import server
 import robot
 import tasks
+import time
 
 def main():
+	
 	with robot.RobotNetwork() as swarmNet:
-		while (swarmNet.robotList.getStatus(1) == robot.ROBOTSTATUS_IDLE):
-			swarmNet.setRobotVelocity(1, robot.ROBOTPATH_LINE, [0.20, 200])
+		tstart = time.monotonic()
 		while True:
-			pass
+			if (time.monotonic() - tstart > 5):
+				swarmNet.setRobotVelocity(1, robot.ROBOTPATH_LINE, [3, 300])
+				tstart = time.monotonic()
 
 
 if __name__ == "__main__":

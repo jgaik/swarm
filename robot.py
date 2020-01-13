@@ -125,22 +125,15 @@ class RobotNetwork:
 				remote = self.robotList(robotID)
 				print(f"[Xbee Network]: Sending message: {msg()}.")
 				self.xbDevice.send_data_async(remote, msg())
+				self.xbDevice.send_data_async(remote, "0")
 			except:
 				print(f"[Xbee Network]: !!!Error sending the data to device {robotID}!!!")
 	
 	def recvDataCallback(self, xbeeMsg: xb.XBeeMessage):
 		id = xbeeMsg.remote_device.get_16bit_addr().get_lsb()
-		self.robotList.setStatus(id, xbeeMsg.data.decode('utf-8'))
-		""" try:
-			if (len(xbeeMsg.data.decode('utf-8')) == 1):
-				sender = next((x for x in self.robotList if x.getId() == id))
-				sender.changeStatus(xbeeMsg.data.decode('utf-8'))
-			
-		except:
-			print(f"[Xbee Network]: !!!Error while receiving the data from {id}!!!") """
+		msg = xbeeMsg.data.decode('utf-8')
 		
-		print(f"Robot {id} data:")
-		print(xbeeMsg.data.decode('utf-8'))
+		print(f"(Robot {id}): {msg}")
 	
 	def setRobotVelocity(self, robotID, pathMode, pathParameters):
 		"""Set velocities of the 'robotID' robot
