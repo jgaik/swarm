@@ -61,7 +61,7 @@ class Camera:
         for f in range(frameOut): 
             ret, frame = self.camera.read()
             if not ret:
-                raise Exception("[Camera]: !!!Couldn't read initial camera frame!!!")
+                raise Exception("[Camera]: !!!Cannot read initial camera frame!!!")
 
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             rawCorners, rawIds, _ = cv2.aruco.detectMarkers(
@@ -111,4 +111,4 @@ class Camera:
             ret, self._frame_current = self.camera.read()
             if not ret:
                 self._frame_current = None
-                raise Exception("[Camera]: !!!Couldn't read camera frame!!!")
+                raise Exception("[Camera]: !!!Cannot read camera frame!!!")
