@@ -25,11 +25,11 @@ def main():
             print(f"[Server]: Client at {client_address} accepted")
 
             try:
-                Thread(target=_threadClient, args=(client_socket, client_address, camera)).start()
+                Thread(target=_clientThread, args=(client_socket, client_address, camera)).start()
             except:
                 print(f"[Server]: !!!Could not start client {client_address} process!!!")
 
-def _threadClient(client_socket, client_address, camera):
+def _clientThread(client_socket, client_address, camera):
     while True:
         signal = client_socket.recv(1)
         signal = signal.decode('utf-8')
