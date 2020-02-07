@@ -83,7 +83,7 @@ class RobotList:
 class RobotNetwork:
 	xbPortnum = "/dev/ttyUSB0"
 	xbBaudrate = "9600"
-	xbNetDiscoveryTimeOut = 3
+	xbNetDiscoveryTimeOut = 3.2
 
 	def __init__(self, portnum = xbPortnum, baudrate = xbBaudrate):
 		self.xbBaudrate = baudrate
@@ -111,10 +111,9 @@ class RobotNetwork:
 			self.xbNet.set_discovery_timeout(float(discoveryTimeOut))
 			self.xbNet.add_device_discovered_callback(self.__callbackDeviceFound)
 			self.xbNet.start_discovery_process()
-			print("Searching for robots", end="")
+			print("Searching for robots...")
 			while self.xbNet.is_discovery_running():
 				time.sleep(0.5)
-				print(".", end="")
 			self.robotList = RobotList(self.xbNet.get_devices())
 			print(f"\n[Xbee Network]: {self.robotList.getLength()} robot(s) found.")
 		else:
@@ -127,7 +126,10 @@ class RobotNetwork:
 		else:
 			try:
 				remote = self.robotList(robotID)
-				print(f"[Xbee Network]: Sending message: {msg()}.")
+				print(f"[Xbee Network]: Sending message: ", end="")
+				for m in msg():
+					print(m, end=" ")
+				print("")
 				self.xbDevice.send_data_async(remote, msg())
 				#self.xbDevice.send_data_async(remote, "0")
 			except:

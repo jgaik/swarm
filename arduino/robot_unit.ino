@@ -58,19 +58,17 @@ SETTING: Message read
 #define MSG_READ 1
 #define MSG_END 2
 #define MSG_ERROR 3
-#define HEADER '*'
+#define HEADER 42 //ASCII for '*'
 
 #define MSG_BUFFERLEN 80
 
-const size_t idxRobotID = 0;
-const size_t idxRobotMode = 1;
-const size_t idxMsgLen = 2;
-const size_t idxParamStart = 3;
+const size_t idxRobotID = 1;
+const size_t idxRobotMode = 2;
+const size_t idxMsgLen = 3;
 const size_t msgModeLen = 3;
 
-size_t msgBufferIdx = 0;
-size_t msgReadCount = 0;
-uint8_t msgBuffer[MSG_BUFFERLEN] = {};
+volatile size_t msgBufferIdx = 0;
+volatile uint8_t msgBuffer[MSG_BUFFERLEN] = {};
 //
 /*
 SETTING: Odometry
@@ -86,14 +84,12 @@ float wheelLeftOmega = 0;
 float wheelRightOmega = 0;
 float wheelLeftDistance = 0;
 float wheelRightDistance = 0;
-float robotDistance = 0;
-float robotOrient = 0;
 //
 /*
 SETTING: Velocity control
 */
 #define WHEEL_VEL_LIMIT 1.0f
-#define VEL_CONTROL_P 0.15
+#define VEL_CONTROL_P 0.20
 
 const unsigned long timeInit = 10000;
 unsigned long timeTraveled = 0;
@@ -203,11 +199,11 @@ bool checkMsg(uint8_t *msgToCheck, size_t length) {
 	//size_t msgFullLen = msgToCheck[idxMsgLen] + msgModeLen;
 	uint8_t modulo = 255;
 	uint8_t sum = 0;
-	for (size_t idx = 0; idx < length - 1; idx++) {
+	for (size_t idx = 1; idx < length; idx++) {
 		sum += msgToCheck[idx];
 	}
 	sum = modulo - sum;
-	return sum == msgToCheck[length - 1];
+	return sum == msgToCheck[length];
 }
 
 void flushBuffer(size_t idxStart, size_t length) {
@@ -216,34 +212,35 @@ void flushBuffer(size_t idxStart, size_t length) {
 }
 
 void readMessage() {
+	
+	bool readNew = false;
 	while (Serial.available() > 0) {
 		msgBuffer[msgBufferIdx] = (uint8_t) Serial.read();
 		msgBufferIdx = (msgBufferIdx + 1) % MSG_BUFFERLEN;
+		readNew = true;
 	}
-	bool msgNew;
-	uint8_t msg[MSG_BUFFERLEN / 2] = {0};
-	for (size_t idxHeader = 0; idxHeader < MSG_BUFFERLEN; idxHeader++) {
-		Serial.print(msgBuffer[idxHeader]);
-		msgNew = false;
-		size_t len;
-		if (msgBuffer[idxHeader] == HEADER) {
-			len = msgBuffer[(idxHeader + idxMsgLen) % MSG_BUFFERLEN] + msgModeLen;
-			for (size_t idxMsg = 1; idxMsg < len; idxMsg++) {
-				msg[idxMsg] = msgBuffer[(idxHeader + idxMsg) % MSG_BUFFERLEN];
+	if (readNew) {
+		bool msgNew;
+		uint8_t msg[MSG_BUFFERLEN / 2] = {0};
+		for (size_t idxHeader = 0; idxHeader < MSG_BUFFERLEN; idxHeader++) {
+			
+			msgNew = false;
+			size_t len;
+			if (msgBuffer[idxHeader] == HEADER) {
+				len = msgBuffer[(idxHeader + idxMsgLen) % MSG_BUFFERLEN] + msgModeLen;
+				for (size_t idxMsg = 0; idxMsg < len + 1; idxMsg++) {
+					msg[idxMsg] = msgBuffer[(idxHeader + idxMsg) % MSG_BUFFERLEN];
+				}
+				msgNew = checkMsg(msg, len);
 			}
-			msgNew = checkMsg(msg, len);
+			if (msgNew) {
+				flushBuffer(idxHeader, len);
+				break;
+			}
 		}
 		if (msgNew) {
-			flushBuffer(idxHeader, len);
-			break;
-		}
-	}
-	if (msgNew) {
-		for (size_t id = 0; id < MSG_BUFFERLEN/2; id++) {
-			Serial.print(msg[id]);
-		}
-		Serial.println(' ');
 		updateRobot(msg);
+		}
 	}
 }
 
@@ -259,32 +256,34 @@ void resetRobotState() {
 }
 
 void updateRobot(uint8_t *msg) {
-	robotMode = msg[idxRobotMode];
 	
-	for (size_t idx = 0; idx < msg[idxMsgLen] - 1; idx += PARAMETER_BYTE_LEN + 1) {
+	for (size_t idx = idxMsgLen + 1; idx < msg[idxMsgLen] - 1; idx += PARAMETER_BYTE_LEN + 1) {
 		uint8_t buffer[PARAMETER_BYTE_LEN] = {};
 		for (size_t idxByte = 0; idxByte < PARAMETER_BYTE_LEN; idxByte++) {
-			buffer[idxByte] = msg[idx + idxParamStart + idxByte + 1];
+			buffer[idxByte] = msg[idx + idxByte + 1];
 		}
-		switch (robotMode) {
+		switch (msg[idxRobotMode]) {
 			case MODE_INIT:
 			{
-				robotParameters[(size_t)msg[idx + idxParamStart]] = convertBytes2Float(buffer);
+				robotParameters[0] = (float) msg[idxRobotID];
+				robotParameters[(size_t)msg[idx]] = convertBytes2Float(buffer);
 				break;
 			}
 			
 			default:
 			{
-				robotState[(size_t)msg[idx + idxParamStart]] = convertBytes2Float(buffer);
+				if ((uint8_t)robotParameters[0] == msg[idxRobotID]) {
+					robotState[(size_t)msg[idx]] = convertBytes2Float(buffer);
+					robotMode = msg[idxRobotMode];
+					timeTraveled = 0;
+					wheelLeftDistance = 0.0f;
+					wheelRightDistance = 0.0f;
+				}
 				break;
 			}
 		}
 	}
-	timeTraveled = 0;
-	wheelLeftDistance = 0.0f;
-	wheelRightDistance = 0.0f;
-	robotDistance = 0.0f;
-	robotOrient = 0.0f;
+
 }
 
 int trajectory(float distance, unsigned long timeFinal, float &velocity, float &distanceTraveled) {
@@ -353,7 +352,7 @@ void setVelocities() {
 		case MODE_PATHTURN:
 		{
 			float angle = robotState[1];
-			dist = angle*robotParameters[1]/2;
+			dist = angle * robotParameters[1]/2;
 			
 			errorCode += trajectory(-dist, timeF, velL, distL);
 			errorCode += trajectory(dist, timeF, velR, distR);
