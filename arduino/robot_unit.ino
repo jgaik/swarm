@@ -1,5 +1,5 @@
-#define dir(x) ((x) < 0 ? HIGH : LOW)
-#define sgn(x) ((x) < 0 ? -1 : 1)
+#define DIR(x) ((x) < 0 ? HIGH : LOW)
+#define	SGN(x) ((x) < 0 ? -1 : 1)
 
 /*
 SETTING: Pin values
@@ -37,6 +37,20 @@ uint8_t robotStatus = STATUS_INIT;
 #define ROBOTSENSOR_LER 1
 #define ROBOTPARAM_LEN 4
 #define PARAMETER_BYTE_LEN 4
+/*
+State array:
+0 - time [s]
+MODE_PATHLINE:
+	1 - distance [mm]
+MODE_PATHTURN:
+	1 - angle distance [rad]
+MODE_PATHARC:
+	1 - angle distance [rad]
+	2 - arc radius [mm]
+MODE_PATHVELOCITY:
+	1 - left wheel velocity (-1.0 to 1.0)
+	2 - right wheel velocity (-1.0 to 1.0)
+*/
 float robotState[ROBOTSTATE_LEN] = {};
 float robotSensor[ROBOTSENSOR_LER] =   {};
 
@@ -44,9 +58,9 @@ const float robotParametersDefault[] = {0.0f, 92.0f, 21.0f, 21.0f};
 /*
 Parameters array:
 0 - robot ID
-1 - wheel distance
-2 - left wheel radius
-3 - right wheel radius
+1 - wheel distance [mm]
+2 - left wheel radius [mm]
+3 - right wheel radius [mm]
 */
 float robotParameters[ROBOTPARAM_LEN] = {};
 //
@@ -89,7 +103,11 @@ float wheelRightDistance = 0;
 SETTING: Velocity control
 */
 #define WHEEL_VEL_LIMIT 1.0f
-#define VEL_CONTROL_P 0.20
+#define VEL_CONTROL_P 1.0
+#define VEL_CONTROL_I 0.0
+
+float errorLSum = 0.0f;
+float errorRSum = 0.0f;
 
 const unsigned long timeInit = 10000;
 unsigned long timeTraveled = 0;
@@ -234,12 +252,11 @@ void readMessage() {
 				msgNew = checkMsg(msg, len);
 			}
 			if (msgNew) {
-				flushBuffer(idxHeader, len);
-				break;
+				if (updateRobot(msg)) {
+					flushBuffer(idxHeader, len);
+					break;
+				}
 			}
-		}
-		if (msgNew) {
-		updateRobot(msg);
 		}
 	}
 }
@@ -255,35 +272,43 @@ void resetRobotState() {
 	}
 }
 
-void updateRobot(uint8_t *msg) {
+bool updateRobot(uint8_t *msg) {
 	
-	for (size_t idx = idxMsgLen + 1; idx < msg[idxMsgLen] - 1; idx += PARAMETER_BYTE_LEN + 1) {
-		uint8_t buffer[PARAMETER_BYTE_LEN] = {};
-		for (size_t idxByte = 0; idxByte < PARAMETER_BYTE_LEN; idxByte++) {
-			buffer[idxByte] = msg[idx + idxByte + 1];
-		}
-		switch (msg[idxRobotMode]) {
-			case MODE_INIT:
-			{
-				robotParameters[0] = (float) msg[idxRobotID];
-				robotParameters[(size_t)msg[idx]] = convertBytes2Float(buffer);
-				break;
-			}
-			
-			default:
-			{
-				if ((uint8_t)robotParameters[0] == msg[idxRobotID]) {
-					robotState[(size_t)msg[idx]] = convertBytes2Float(buffer);
-					robotMode = msg[idxRobotMode];
-					timeTraveled = 0;
-					wheelLeftDistance = 0.0f;
-					wheelRightDistance = 0.0f;
+	switch (msg[idxRobotMode]) {
+		case MODE_INIT: 
+		{
+			robotParameters[0] = (float) msg[idxRobotID];
+			for (size_t idx = idxMsgLen + 1; idx < msg[idxMsgLen] - 1; idx += PARAMETER_BYTE_LEN + 1) {
+				uint8_t buffer[PARAMETER_BYTE_LEN] = {};
+				for (size_t idxByte = 0; idxByte < PARAMETER_BYTE_LEN; idxByte++) {
+					buffer[idxByte] = msg[idx + idxByte + 1];
 				}
-				break;
+				robotParameters[(size_t)msg[idx]] = convertBytes2Float(buffer);
+			}
+			return true;
+		}
+
+		default: 
+		{
+			if ((uint8_t)robotParameters[0] == msg[idxRobotID]) {
+				robotMode = msg[idxRobotMode];
+				for (size_t idx = idxMsgLen + 1; idx < msg[idxMsgLen] - 1; idx += PARAMETER_BYTE_LEN + 1) {
+					uint8_t buffer[PARAMETER_BYTE_LEN] = {};
+					for (size_t idxByte = 0; idxByte < PARAMETER_BYTE_LEN; idxByte++) {
+						buffer[idxByte] = msg[idx + idxByte + 1];
+					}
+					robotState[(size_t)msg[idx]] = convertBytes2Float(buffer);
+				}
+				timeTraveled = 0;
+				wheelLeftDistance = 0.0f;
+				wheelRightDistance = 0.0f;
+				return true;
+
+			} else {
+				return false;
 			}
 		}
 	}
-
 }
 
 int trajectory(float distance, unsigned long timeFinal, float &velocity, float &distanceTraveled) {
@@ -303,7 +328,7 @@ int trajectory(float distance, unsigned long timeFinal, float &velocity, float &
 		distanceTraveled = distance * ( t - blend/2 ) / (1 - blend);
 		velocity = velMax;
 		return 0;
-	}
+	} else 
 	if (t < 1.0f) {
 		distanceTraveled = distance * ( t - blend/2 - (t - 1 + blend)*(t - 1 + blend)/2/blend ) / (1 - blend);
 		velocity = velMax * ( (1 - t) / blend );
@@ -318,13 +343,30 @@ int trajectory(float distance, unsigned long timeFinal, float &velocity, float &
 void velocityControl(float& velocityL, float& velocityR, float goalDistL, float goalDistR) {
 	float errorL = goalDistL - wheelLeftDistance;
 	float errorR = goalDistR - wheelRightDistance;
-	velocityL+=errorL*VEL_CONTROL_P;
-	velocityR+=errorR*VEL_CONTROL_P;
+	float _errorLSum = errorLSum + errorL;
+	float _errorRSum = errorRSum + errorR;
+
+	float _velocityL = errorL*VEL_CONTROL_P + _errorLSum*VEL_CONTROL_I; 
+	float _velocityR = errorR*VEL_CONTROL_P + _errorRSum*VEL_CONTROL_I;
+
+	if (abs(_velocityL) > WHEEL_VEL_LIMIT) {
+		velocityL = errorL*VEL_CONTROL_P + errorLSum*VEL_CONTROL_I;
+	} else {
+		velocityL = _velocityL;
+		errorLSum = _errorLSum;
+	}
+
+	if (abs(_velocityR) > WHEEL_VEL_LIMIT) {
+		velocityR = errorR*VEL_CONTROL_P + errorRSum*VEL_CONTROL_I;
+	} else {
+		velocityR = _velocityR;
+		errorRSum = _errorRSum;
+	}
 }
 
 void setVelocities() {
 	float velL, velR;
-	float dist, distL, distR;
+	float distFinL, distFinR, distL, distR;
 	unsigned long timeF = (unsigned long) (robotState[0] * 1000);
 
 	int errorCode = 0;
@@ -339,23 +381,28 @@ void setVelocities() {
 
 		case MODE_PATHLINE:
 		{
-			dist = robotState[1];
-			errorCode += trajectory(dist, timeF, velL, distL);
-			errorCode += trajectory(dist, timeF, velR, distR);
+			distFinL = robotState[1];
+			distFinR = distFinL;
+			errorCode |= trajectory(distFinL, timeF, velL, distL);
+			errorCode |= trajectory(distFinR, timeF, velR, distR);
 			velocityControl(velL, velR, distL, distR);
 			break;
 		}
 		case MODE_PATHARC:
 		{
+			distFinL = (robotState[2]-robotParameters[1]/2)*robotState[1];
+			distFinR = (robotState[2]+robotParameters[1]/2)*robotState[1];
+			errorCode |= trajectory(distFinL, timeF, velL, distL);
+			errorCode |= trajectory(distFinR, timeF, velR, distR);
+			velocityControl(velL, velR, distL, distR);
 			break;
 		}
 		case MODE_PATHTURN:
 		{
-			float angle = robotState[1];
-			dist = angle * robotParameters[1]/2;
-			
-			errorCode += trajectory(-dist, timeF, velL, distL);
-			errorCode += trajectory(dist, timeF, velR, distR);
+			distFinL = -robotState[1] * robotParameters[1]/2;
+			distFinR = -distFinL;
+			errorCode |= trajectory(distFinL, timeF, velL, distL);
+			errorCode |= trajectory(distFinR, timeF, velR, distR);
 			velocityControl(velL, velR, distL, distR);
 			break;
 		}
@@ -365,14 +412,14 @@ void setVelocities() {
 				velL = constrain(robotState[1], -WHEEL_VEL_LIMIT, WHEEL_VEL_LIMIT);
 				velR = constrain(robotState[2], -WHEEL_VEL_LIMIT, WHEEL_VEL_LIMIT);
 			} else {
-				errorCode = 1;
+				errorCode |= 1;
 			}
 			break;
 		}
 	}
 	if (errorCode == 0) {
-		digitalWrite(pinWheelLeftDir, dir(velL));
-		digitalWrite(pinWheelRightDir, dir(velR));
+		digitalWrite(pinWheelLeftDir, DIR(velL));
+		digitalWrite(pinWheelRightDir, DIR(velR));
 
 		analogWrite(pinWheelRightSpeed, (int)abs(velR * 255));	
 		analogWrite(pinWheelLeftSpeed, (int)abs(velL * 255));
