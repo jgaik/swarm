@@ -1,4 +1,6 @@
 import time
+from typing import List
+from threading import Thread
 import digi.xbee.devices as xb
 import struct
 
@@ -47,20 +49,32 @@ class Message:
 
 class RobotList:
 
-	def __init__(self, xbeeList):
+	def __init__(self):
 		self.ids = []
 		self.devices = []
 		self.status = []
-		for dev in xbeeList:
-			self.ids.append(dev.get_16bit_addr().get_lsb())
-			self.devices.append(dev)
-			self.status.append(ROBOTSTATUS_IDLE)
+		self.buffer = []
 
-	def __call__(self, robotId) -> xb.RemoteXBeeDevice:
+	def getDevice(self, robotId) -> xb.RemoteXBeeDevice:
 		try:
 			return self.devices[self.ids.index(robotId)]
 		except ValueError:
 			print(f"[Xbee Network]: !!!Unknown robot address ({robotId})!!!")
+
+	def addDevice(self, xbeeDevice:xb.RemoteXBeeDevice):
+		if not self.checkId(xbeeDevice.get_16bit_addr().get_lsb()):
+			self.ids.append(xbeeDevice.get_16bit_addr().get_lsb())
+			self.devices.append(xbeeDevice)
+			self.status.append(ROBOTSTATUS_IDLE)
+			self.buffer.append('')
+			print(f"[Xbee Network]: Robot {xbeeDevice.get_16bit_addr().get_lsb()} added to list")
+
+	def addDevices(self, xbeeList: List[xb.RemoteXBeeDevice]):
+		for dev in xbeeList:
+			self.ids.append(dev.get_16bit_addr().get_lsb())
+			self.devices.append(dev)
+			self.status.append(ROBOTSTATUS_IDLE)
+			self.buffer.append('')
 
 	def getStatus(self, robotId):
 		try:
@@ -79,6 +93,11 @@ class RobotList:
 	def getLength(self):
 		return len(self.ids)
 
+	def getIds(self):
+		return self.ids
+
+	def checkId(self, robotId):
+		return robotId in self.ids
 
 class RobotNetwork:
 	xbPortnum = "/dev/ttyUSB0"
@@ -90,32 +109,28 @@ class RobotNetwork:
 		self.xbPortnum = portnum
 		self.xbDevice = xb.XBeeDevice(self.xbPortnum, self.xbBaudrate)
 		self.xbRemotes = None
+		self.robotList = RobotList()
 	
 	def __enter__(self):
 		print("[Xbee network]: Initialising..")
 		self.xbDevice.open()
 		self.xbNet = self.xbDevice.get_network()
-		self.updateNetwork()
 		self.xbDevice.add_data_received_callback(self.__callbackDataRecv)
 		print(f"[Xbee Network]: Initialisation finished.")
+		Thread(target=self.__updateNetworkThread).start()
 		return self
 
 	def __exit__(self, _, __, ___):
+		self.xbNet.stop_discovery_process()
 		self.xbDevice.del_data_received_callback(self.__callbackDataRecv)
 		self.xbDevice.close()
 		print("[Xbee Network]: Connection closed.")
 
-	def updateNetwork(self, discoveryTimeOut = xbNetDiscoveryTimeOut):
+	def __updateNetworkThread(self):
 		if self.xbDevice._is_open:
-			print(f"[Xbee Network]: Network discovery process.")
-			self.xbNet.set_discovery_timeout(float(discoveryTimeOut))
+			print(f"[Xbee Network]: Network discovery process started.")
 			self.xbNet.add_device_discovered_callback(self.__callbackDeviceFound)
 			self.xbNet.start_discovery_process()
-			print("Searching for robots...")
-			while self.xbNet.is_discovery_running():
-				time.sleep(0.5)
-			self.robotList = RobotList(self.xbNet.get_devices())
-			print(f"\n[Xbee Network]: {self.robotList.getLength()} robot(s) found.")
 		else:
 			print(f"[Xbee Network]: !!!Controller device not open!!!")
 	
@@ -125,13 +140,9 @@ class RobotNetwork:
 			self.xbDevice.send_data_broadcast(msg())
 		else:
 			try:
-				remote = self.robotList(robotID)
-				print(f"[Xbee Network]: Sending message: ", end="")
-				for m in msg():
-					print(m, end=" ")
-				print("")
+				remote = self.robotList.getDevice(robotID)
+				print(f"[Xbee Network]: Sending message: {' '.join([str(m) for m in msg()])}")
 				self.xbDevice.send_data_async(remote, msg())
-				#self.xbDevice.send_data_async(remote, "0")
 			except:
 				print(f"[Xbee Network]: !!!Error sending the data to device {robotID}!!!")
 	
@@ -142,10 +153,14 @@ class RobotNetwork:
 		print(f"(Robot {id}): {msg}")
 
 	def __callbackDeviceFound(self, xbeeRemote: xb.RemoteXBeeDevice):
-		print(f"[Xbee Network]: Robot {xbeeRemote.get_16bit_addr().get_lsb()} found")
+		id = xbeeRemote.get_16bit_addr().get_lsb()
+		print(f"[Xbee Network]: Robot {id} found")
+		self.robotList.addDevice(xbeeRemote)
+		self.setRobotParameters(id)
 	
 	def setRobotVelocity(self, robotID, pathMode, pathParameters):
-		"""Set velocities of the 'robotID' robot
+		"""
+		Set velocities of the 'robotID' robot
 		:param pathMode: path mode of the setting
 		:param pathParameters: parameters in order:
 			ROBOTPATH_LINE [time, distance (mm)]
@@ -162,20 +177,36 @@ class RobotNetwork:
 			assert (len(pathParameters) == 2), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
 		if pathMode == ROBOTPATH_VELOCITY:
 			assert (len(pathParameters) == 3), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
-		data = {}
-		data["mode"] = pathMode
-		data["params"] = []
+		data = {
+			"mode": pathMode,
+			"params": []
+		}
 
 		for pIdx in range(len(pathParameters)):
 			data["params"].append([pIdx, pathParameters[pIdx]])
 		
 		self.__sendData(data, robotID)
 
-	def setRobotParameters(self, robotID, parametersList):
+	def setRobotParameters(self, robotID, distance=None, radiusLeft=None, radiusRight=None):
+		"""
+		Set parameters of the 'robotID' robot
+		:param distance: distance between the centers of the wheels
+		:param radiusLeft: radius of the left wheel
+		:param radiusRight: radius of the right wheel
+		"""
 
 		data = {
 			"mode": ROBOTMODE_INIT,
-			"params": parametersList
+			"params": []
 		}
+		if ( distance is not None ):
+			assert (distance > 0), f"[Xbee Network]: !!!Wheel distance must be bigger than 0!!!"
+			data["params"].append([1, distance])
+		if ( radiusLeft is not None ):
+			assert (radiusLeft > 0), f"[Xbee Network]: !!!Wheel radius must be bigger than 0!!!"
+			data["params"].append([2, radiusLeft])
+		if ( radiusRight is not None ):
+			assert (radiusRight > 0), f"[Xbee Network]: !!!Wheel radius must be bigger than 0!!!"
+			data["params"].append([3, radiusRight])
 
 		self.__sendData(data, robotID)
