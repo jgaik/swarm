@@ -1,5 +1,5 @@
-#define DIR(x) ((x) < 0 ? HIGH : LOW)
-#define	SGN(x) ((x) < 0 ? -1 : 1)
+#include "headers/config.h"
+
 
 /*
 SETTING: Pin values
@@ -19,23 +19,16 @@ const uint8_t pinButton = 4;
 /*
 SETTING: Robot data
 */
-#define MODE_NONE 0
-#define MODE_INIT 5
-#define MODE_PATHLINE 1
-#define MODE_PATHARC 2
-#define MODE_PATHTURN 3
-#define MODE_PATHVELOCITY 4
+#define ROBOT_ID (uint8_t)robotParameters[0]
 
-#define STATUS_INIT 0
-#define STATUS_IDLE 1
-#define STATUS_WORKING 2
+
 
 uint8_t robotMode = MODE_NONE;
 uint8_t robotStatus = STATUS_INIT;
 
 #define ROBOTSTATE_LEN 3
 #define ROBOTSENSOR_LER 1
-#define ROBOTPARAM_LEN 4
+#define ROBOTPARAM_LEN 7
 #define PARAMETER_BYTE_LEN 4
 /*
 State array:
@@ -54,28 +47,22 @@ MODE_PATHVELOCITY:
 float robotState[ROBOTSTATE_LEN] = {};
 float robotSensor[ROBOTSENSOR_LER] =   {};
 
-const float robotParametersDefault[] = {0.0f, 92.0f, 21.0f, 21.0f};
+const float robotParametersDefault[] = {0.0f, 92.0f, 21.0f, 21.0f, 0.0f, 0.0f, 0.0f};
 /*
 Parameters array:
 0 - robot ID
 1 - wheel distance [mm]
 2 - left wheel radius [mm]
 3 - right wheel radius [mm]
+4 - velocity controller constant - Proportional part
+5 - velocity controller constant - Integral part
+6 - velocity controller constant - Differential part
 */
-float robotParameters[ROBOTPARAM_LEN] = {};
+float robotParameters[ROBOTPARAM_LEN+1] = {};
 //
 /*
 SETTING: Message read
 */
-#define BAUDRATE 9600
-#define MSG_NONE 0
-#define MSG_READ 1
-#define MSG_END 2
-#define MSG_ERROR 3
-#define HEADER 42 //ASCII for '*'
-
-#define MSG_BUFFERLEN 80
-
 const size_t idxRobotID = 1;
 const size_t idxRobotMode = 2;
 const size_t idxMsgLen = 3;
@@ -87,6 +74,9 @@ volatile uint8_t msgBuffer[MSG_BUFFERLEN] = {};
 /*
 SETTING: Odometry
 */
+#define WHEEL_DIST robotParameters[1]
+#define WHEEL_RADIUS_L robotParameters[2]
+#define WHEEL_RADIUS_R robotParameters[3]
 #define K 75*3
 
 volatile long wheelCounterLeft = 0;
@@ -103,13 +93,17 @@ float wheelRightDistance = 0;
 SETTING: Velocity control
 */
 #define WHEEL_VEL_LIMIT 1.0f
-#define VEL_CONTROL_P 1.0
-#define VEL_CONTROL_I 0.0
+#define VEL_CONTROL_P robotParameters[4]
+#define VEL_CONTROL_I robotParameters[5]
+#define VEL_CONTROL_D robotParameters[6]
 
 float errorLSum = 0.0f;
 float errorRSum = 0.0f;
 
-const unsigned long timeInit = 10000;
+float errorLPrev = 0.0f;
+float errorRPrev = 0.0f;
+
+const unsigned long timeInit = 5000;
 unsigned long timeTraveled = 0;
 //
 void setup() {
@@ -134,8 +128,19 @@ void loop() {
 	switch (robotStatus) {
 		case STATUS_INIT: 
 		{
-			if (millis() - timeTraveled > timeInit)
+			if (millis() - timeTraveled > timeInit) {
 				robotStatus = STATUS_IDLE;
+				robotMode = MODE_NONE;
+				timeSaved = millis();
+			}
+			break;
+		}
+		case STATUS_TEST:
+		{
+			robotState[0] = 1.0f;
+			robotState[1] = 210;
+			setVelocities();
+			odometry();
 			break;
 		}
 		default: 
@@ -190,13 +195,13 @@ void odometry() {
 		noInterrupts();
 		//wheelLeftOmega = (float)wheelCounterLeft / (K * timeDiff) * 1000;
 		//wheelRightOmega = (float)wheelCounterRight / (K * timeDiff) * 1000;
-		float drL = 2 * PI * (float)wheelCounterLeft * robotParameters[2] / (K);
-		float drR = 2 * PI * (float)wheelCounterRight * robotParameters[3] / (K);
+		float drL = 2 * PI * (float)wheelCounterLeft * WHEEL_RADIUS_L / (K);
+		float drR = 2 * PI * (float)wheelCounterRight * WHEEL_RADIUS_R / (K);
 		wheelCounterRight = 0;
 		wheelCounterLeft = 0;
 		interrupts();
 		//float dr = (drL + drR) / 2;
-		//float dfi = (drR - drL) / robotParameters[1];
+		//float dfi = (drR - drL) / WHEEL_DIST;
 		wheelLeftDistance += drL;
 		wheelRightDistance += drR;
 		//robotOrient += dfi;
@@ -244,7 +249,7 @@ void readMessage() {
 			
 			msgNew = false;
 			size_t len;
-			if (msgBuffer[idxHeader] == HEADER) {
+			if (msgBuffer[idxHeader] == MSG_HEADER) {
 				len = msgBuffer[(idxHeader + idxMsgLen) % MSG_BUFFERLEN] + msgModeLen;
 				for (size_t idxMsg = 0; idxMsg < len + 1; idxMsg++) {
 					msg[idxMsg] = msgBuffer[(idxHeader + idxMsg) % MSG_BUFFERLEN];
@@ -290,7 +295,7 @@ bool updateRobot(uint8_t *msg) {
 
 		default: 
 		{
-			if ((uint8_t)robotParameters[0] == msg[idxRobotID]) {
+			if (ROBOT_ID == msg[idxRobotID]) {
 				robotMode = msg[idxRobotMode];
 				for (size_t idx = idxMsgLen + 1; idx < msg[idxMsgLen] - 1; idx += PARAMETER_BYTE_LEN + 1) {
 					uint8_t buffer[PARAMETER_BYTE_LEN] = {};
@@ -302,6 +307,10 @@ bool updateRobot(uint8_t *msg) {
 				timeTraveled = 0;
 				wheelLeftDistance = 0.0f;
 				wheelRightDistance = 0.0f;
+				errorLPrev = 0.0f;
+				errorLSum = 0.0f;
+				errorRPrev = 0.0f;
+				errorRSum = 0.0f;
 				return true;
 
 			} else {
@@ -345,19 +354,24 @@ void velocityControl(float& velocityL, float& velocityR, float goalDistL, float 
 	float errorR = goalDistR - wheelRightDistance;
 	float _errorLSum = errorLSum + errorL;
 	float _errorRSum = errorRSum + errorR;
+	float _errorLDiff = errorL - errorLPrev;
+	float _errorRDiff = errorR - errorRPrev;
+	
+	errorLPrev = errorL;
+	errorRPrev = errorR;
 
-	float _velocityL = errorL*VEL_CONTROL_P + _errorLSum*VEL_CONTROL_I; 
-	float _velocityR = errorR*VEL_CONTROL_P + _errorRSum*VEL_CONTROL_I;
+	float _velocityL = velocityL + errorL*VEL_CONTROL_P + _errorLSum*VEL_CONTROL_I + _errorLDiff*VEL_CONTROL_D; 
+	float _velocityR = velocityR + errorR*VEL_CONTROL_P + _errorRSum*VEL_CONTROL_I + _errorRDiff*VEL_CONTROL_D;
 
 	if (abs(_velocityL) > WHEEL_VEL_LIMIT) {
-		velocityL = errorL*VEL_CONTROL_P + errorLSum*VEL_CONTROL_I;
+		velocityL += errorL*VEL_CONTROL_P + errorLSum*VEL_CONTROL_I + _errorLDiff*VEL_CONTROL_D;
 	} else {
 		velocityL = _velocityL;
 		errorLSum = _errorLSum;
 	}
 
 	if (abs(_velocityR) > WHEEL_VEL_LIMIT) {
-		velocityR = errorR*VEL_CONTROL_P + errorRSum*VEL_CONTROL_I;
+		velocityR += errorR*VEL_CONTROL_P + errorRSum*VEL_CONTROL_I + _errorRDiff*VEL_CONTROL_D;
 	} else {
 		velocityR = _velocityR;
 		errorRSum = _errorRSum;
@@ -390,8 +404,8 @@ void setVelocities() {
 		}
 		case MODE_PATHARC:
 		{
-			distFinL = (robotState[2]-robotParameters[1]/2)*robotState[1];
-			distFinR = (robotState[2]+robotParameters[1]/2)*robotState[1];
+			distFinL = (robotState[2]-WHEEL_DIST/2)*robotState[1];
+			distFinR = (robotState[2]+WHEEL_DIST/2)*robotState[1];
 			errorCode |= trajectory(distFinL, timeF, velL, distL);
 			errorCode |= trajectory(distFinR, timeF, velR, distR);
 			velocityControl(velL, velR, distL, distR);
@@ -399,7 +413,7 @@ void setVelocities() {
 		}
 		case MODE_PATHTURN:
 		{
-			distFinL = -robotState[1] * robotParameters[1]/2;
+			distFinL = -robotState[1] * WHEEL_DIST/2;
 			distFinR = -distFinL;
 			errorCode |= trajectory(distFinL, timeF, velL, distL);
 			errorCode |= trajectory(distFinR, timeF, velR, distR);

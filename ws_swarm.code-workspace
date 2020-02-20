@@ -15,7 +15,16 @@
 			"typeinfo": "cpp",
 			"atomic": "cpp",
 			"utility": "cpp",
-			"complex": "cpp"
+			"complex": "cpp",
+			"array": "cpp",
+			"functional": "cpp",
+			"tuple": "cpp",
+			"fstream": "cpp",
+			"limits": "cpp",
+			"mutex": "cpp",
+			"ostream": "cpp",
+			"numeric": "cpp",
+			"thread": "cpp"
 		}
 	}
 }

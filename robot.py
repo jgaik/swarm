@@ -187,7 +187,7 @@ class RobotNetwork:
 		
 		self.__sendData(data, robotID)
 
-	def setRobotParameters(self, robotID, distance=None, radiusLeft=None, radiusRight=None):
+	def setRobotParameters(self, robotID, distance=None, radiusLeft=None, radiusRight=None, pid=None):
 		"""
 		Set parameters of the 'robotID' robot
 		:param distance: distance between the centers of the wheels
@@ -201,12 +201,16 @@ class RobotNetwork:
 		}
 		if ( distance is not None ):
 			assert (distance > 0), f"[Xbee Network]: !!!Wheel distance must be bigger than 0!!!"
-			data["params"].append([1, distance])
+			data["params"].append([0, distance])
 		if ( radiusLeft is not None ):
 			assert (radiusLeft > 0), f"[Xbee Network]: !!!Wheel radius must be bigger than 0!!!"
-			data["params"].append([2, radiusLeft])
+			data["params"].append([1, radiusLeft])
 		if ( radiusRight is not None ):
 			assert (radiusRight > 0), f"[Xbee Network]: !!!Wheel radius must be bigger than 0!!!"
-			data["params"].append([3, radiusRight])
+			data["params"].append([2, radiusRight])
+		if ( pid is not None ):
+			assert (len(pid) == 3), f"[Xbee Network]: !!!PID controller parameters must be of length 3!!!"
+			for val in range(3):
+				data["params"].append([val + 3, pid[val]])
 
 		self.__sendData(data, robotID)
