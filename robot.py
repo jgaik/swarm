@@ -141,8 +141,8 @@ class RobotNetwork:
 		else:
 			try:
 				remote = self.robotList.getDevice(robotID)
-				print(f"[Xbee Network]: Sending message: {' '.join([str(m) for m in msg()])}")
 				self.xbDevice.send_data_async(remote, msg())
+				print(f"[Xbee Network]: Sending message: {' '.join([str(m) for m in msg()])}")
 			except:
 				print(f"[Xbee Network]: !!!Error sending the data to device {robotID}!!!")
 	
