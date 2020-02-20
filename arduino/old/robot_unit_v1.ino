@@ -1,4 +1,4 @@
-#include "headers/config.h"
+#include "config.h"
 
 
 /*

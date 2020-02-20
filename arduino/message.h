@@ -1,6 +1,7 @@
 #ifndef MESSAGE_H
 #define MESSAGE_H
 
+#include "Arduino.h"
 #include "config.h"
 #include "functions.h"
 
@@ -10,6 +11,23 @@ struct Command {
   size_t parametersNumber;
   size_t* positions;
   float* values;
+};
+
+class CyclicBuffer {
+  public:
+    CyclicBuffer();
+    CyclicBuffer(size_t length);
+    void push(uint8_t item);
+    uint8_t* get(size_t start, size_t length);
+    uint8_t get(size_t idx);
+    size_t length();
+    void flush();
+    void flush(size_t start, size_t len);
+    ~CyclicBuffer();
+  private:
+    uint8_t* _buffer;
+    size_t _len;
+    size_t _idx = 0;
 };
 
 class MessageBuffer {
@@ -31,23 +49,6 @@ class MessageBuffer {
 
     bool check(uint8_t* msg, size_t length);
     void extract(uint8_t* msg);
-};
-
-class CyclicBuffer {
-  public:
-    CyclicBuffer();
-    CyclicBuffer(size_t length);
-    void push(uint8_t item);
-    uint8_t* get(size_t start, size_t length);
-    uint8_t get(size_t idx);
-    size_t length();
-    void flush();
-    void flush(size_t start, size_t len);
-    ~CyclicBuffer();
-  private:
-    uint8_t* _buffer;
-    size_t _len;
-    size_t _idx = 0;
 };
 
 #endif

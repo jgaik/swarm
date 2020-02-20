@@ -1,9 +1,11 @@
-#include "../headers/message.h"
+#include "message.h"
 
 CyclicBuffer::CyclicBuffer(size_t length) {
   _buffer = new uint8_t[length]();
   _len = length;
 }
+
+CyclicBuffer::CyclicBuffer() {}
 
 void CyclicBuffer::push(uint8_t item) {
   _buffer[_idx] = item;

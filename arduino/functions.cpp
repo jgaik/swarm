@@ -1,4 +1,4 @@
-#include "../headers/functions.h"
+#include "functions.h"
 
 float convertBytes2Float(uint8_t floatBytes[4]) {
 	uint32_t value32 = 0;
@@ -37,11 +37,9 @@ int trajectory(float distanceFinal, size_t timeFinal, size_t timeTraveled, float
 	}
 }
 
-Encoders::Encoders() {};
+Encoders::Encoders() {}
 
 Encoders::Encoders(uint8_t pinALeft, uint8_t pinBLeft, uint8_t pinARight, uint8_t pinBRight) {
-	attachInterrupt(digitalPinToInterrupt(pinALeft), this->encoderCountLeft, RISING);
-	attachInterrupt(digitalPinToInterrupt(pinARight), this->encoderCountRight, RISING);
   _pinAL = pinALeft;
   _pinBL = pinBLeft;
   _pinAR = pinARight;
@@ -53,14 +51,14 @@ void Encoders::reset() {
   counterLeft = 0;
 }
 
-void Encoders::encoderCountLeft() {
+void Encoders::countLeft() {
   if(digitalRead(_pinBL) == LOW)
     counterLeft--;
   else 
     counterLeft++;
 }
 
-void Encoders::encoderCountRight() {
+void Encoders::countRight() {
   if(digitalRead(_pinBR) == LOW)
     counterRight++;
   else

@@ -1,11 +1,17 @@
 #ifndef FUNCTIONS_H
 #define FUNCTIONS_H
 
+#include "Arduino.h"
+
 class Encoders {
   public:
     Encoders();
     Encoders(uint8_t pinALeft, uint8_t pinBLeft, uint8_t pinARight, uint8_t pinBRight);
+    
+    void countLeft();
+    void countRight();
     void reset();
+    
     volatile long counterLeft = 0;
     volatile long counterRight = 0;
 
@@ -14,9 +20,6 @@ class Encoders {
     uint8_t _pinBL;
     uint8_t _pinAR;
     uint8_t _pinBR;
-    
-    void encoderCountLeft();
-    void encoderCountRight();
 };
 
 float convertBytes2Float(uint8_t floatBytes[4]);

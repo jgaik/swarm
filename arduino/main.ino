@@ -1,11 +1,11 @@
-#include "headers/config.h"
-#include "headers/message.h"
-#include "headers/robot.h"
-#include "headers/functions.h"
+#include "config.h"
+#include "functions.h"
+#include "message.h"
+#include "robot.h"
 
-Robot robot = Robot(paramsDefault);
-MessageBuffer buffer = MessageBuffer(MSG_BUFFERLEN);
-Encoders encoders;
+Robot robot(paramsDefault);
+MessageBuffer buffer(MSG_BUFFERLEN);
+Encoders encoders(pinEncoderALeft, pinEncoderBLeft, pinEncoderARight, pinEncoderBRight);
 
 void setup() {
 	pinMode(pinWheelLeftDir, OUTPUT);
@@ -18,8 +18,9 @@ void setup() {
 	pinMode(pinEncoderBLeft, INPUT);
 	pinMode(pinEncoderBRight, INPUT);
 
+  attachInterrupt(pinEncoderALeft, interruptLeft, RISING);
+  attachInterrupt(pinEncoderARight, interruptRight, RISING);
   Serial.begin(BAUDRATE);
-  encoders = Encoders(pinEncoderALeft, pinEncoderBLeft, pinEncoderARight, pinEncoderBRight);
 }
 
 void loop() {
@@ -31,14 +32,22 @@ void loop() {
     }
     default:
     {
-      readMessage();
+      messageRead();
       robot.setVelocity(pinWheelLeftSpeed, pinWheelLeftDir, pinWheelRightSpeed, pinWheelRightDir);
       robot.odometry(encoders);
     }
   }
 }
 
-void readMessage() {
+void interruptLeft() {
+  encoders.countLeft();
+}
+
+void interruptRight() {
+  encoders.countRight();
+}
+
+void messageRead() {
   while (Serial.available() > 0) {
     buffer.append((uint8_t)Serial.read());
   }

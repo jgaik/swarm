@@ -1,4 +1,4 @@
-#include "../headers/robot.h"
+#include "robot.h"
 
 Robot::Robot(const float* paramsDefault) {
   _parametersDefault = paramsDefault;
@@ -7,9 +7,9 @@ Robot::Robot(const float* paramsDefault) {
 }
 
 Robot::~Robot() {
-  delete _parameters;
-  delete _settings;
-  delete _sensors;
+  //delete [] _parameters;
+  //delete [] _settings;
+  //delete [] _sensors;
 }
 
 void Robot::reset() {
