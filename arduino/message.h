@@ -5,7 +5,7 @@
 #include "config.h"
 #include "functions.h"
 
-struct Command {
+struct command {
   uint8_t id;
   uint8_t mode;
   size_t parametersNumber;
@@ -15,7 +15,6 @@ struct Command {
 
 class CyclicBuffer {
   public:
-    CyclicBuffer();
     CyclicBuffer(size_t length);
     void push(uint8_t item);
     uint8_t* get(size_t start, size_t length);
@@ -23,7 +22,6 @@ class CyclicBuffer {
     size_t length();
     void flush();
     void flush(size_t start, size_t len);
-    ~CyclicBuffer();
   private:
     uint8_t* _buffer;
     size_t _len;
@@ -32,15 +30,14 @@ class CyclicBuffer {
 
 class MessageBuffer {
   public:
-    MessageBuffer();
     MessageBuffer(size_t length);
     void append(uint8_t reading);
-    Command getCommand();
+    command getCommand();
     bool findCommand(uint8_t header);
   private:
     bool _updated = false;
-    Command _command;
-    CyclicBuffer _buffer;
+    command _command;
+    CyclicBuffer* _buffer;
 
     const size_t idxRobotID = 1;
     const size_t idxRobotMode = 2;

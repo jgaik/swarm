@@ -3,13 +3,7 @@
 Robot::Robot(const float* paramsDefault) {
   _parametersDefault = paramsDefault;
   reset();
-  _pid = ControllerPID(_parameters[3], _parameters[4], _parameters[5]);
-}
-
-Robot::~Robot() {
-  //delete [] _parameters;
-  //delete [] _settings;
-  //delete [] _sensors;
+  _pid = new ControllerPID(_parameters[3], _parameters[4], _parameters[5]);
 }
 
 void Robot::reset() {
@@ -49,7 +43,7 @@ void Robot::setStatus(uint8_t statusCode) {
   _status = statusCode;
 }
 
-bool Robot::update(Command cmd) {
+bool Robot::update(command cmd) {
   switch (cmd.mode) {
 		case MODE_INIT: 
 		{
@@ -70,7 +64,7 @@ bool Robot::update(Command cmd) {
 				_timeTraveled = 0;
 				_distL = 0.0f;
 				_distR = 0.0f;
-        _pid.reset(); 
+        _pid->reset(); 
 				return true;
 
 			} else {
@@ -112,7 +106,7 @@ void Robot::setVelocity(uint8_t pinL, uint8_t pinLDir, uint8_t pinR, uint8_t pin
 			distFinR = distFinL;
 			errorCode |= trajectory(distFinL, timeF, _timeTraveled, distL, _velL);
 			errorCode |= trajectory(distFinR, timeF, _timeTraveled, distR, _velR);
-			_pid.update(distL-_distL, distR-_distR,_velL,_velR);
+			_pid->update(distL-_distL, distR-_distR,_velL,_velR);
       break;
 		}
 		case MODE_PATHARC:
@@ -121,7 +115,7 @@ void Robot::setVelocity(uint8_t pinL, uint8_t pinLDir, uint8_t pinR, uint8_t pin
 			distFinR = (_settings[2]+_parameters[0]/2)*_settings[1];
 			errorCode |= trajectory(distFinL, timeF, _timeTraveled, distL, _velL);
 			errorCode |= trajectory(distFinR, timeF, _timeTraveled, distR, _velR);
-			_pid.update(distL-_distL, distR-_distR,_velL,_velR);
+			_pid->update(distL-_distL, distR-_distR,_velL,_velR);
       break;
 		}
 		case MODE_PATHTURN:
@@ -130,7 +124,7 @@ void Robot::setVelocity(uint8_t pinL, uint8_t pinLDir, uint8_t pinR, uint8_t pin
 			distFinR = -distFinL;
 			errorCode |= trajectory(distFinL, timeF, _timeTraveled, distL, _velL);
 			errorCode |= trajectory(distFinR, timeF, _timeTraveled, distR, _velR);
-			_pid.update(distL-_distL, distR-_distR,_velL,_velR);
+			_pid->update(distL-_distL, distR-_distR,_velL,_velR);
 			break;
 		}
 		case MODE_PATHVELOCITY:
@@ -156,9 +150,7 @@ void Robot::setVelocity(uint8_t pinL, uint8_t pinLDir, uint8_t pinR, uint8_t pin
 	}
 }
 
-ControllerPID::ControllerPID() {
-  reset();
-}
+
 
 ControllerPID::ControllerPID(float Kp, float Ki, float Kd) {
   _kp = Kp;

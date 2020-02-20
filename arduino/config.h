@@ -1,8 +1,6 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#include "Arduino.h"
-
 #define DIR(x) ((x) < 0 ? HIGH : LOW)
 #define	SGN(x) ((x) < 0 ? -1 : 1)
 

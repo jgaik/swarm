@@ -8,7 +8,7 @@
 
 class ControllerPID {
   public:
-    ControllerPID();
+    //ControllerPID();
     ControllerPID(float Kp, float Ki = 0.0f, float Kd = 0.0f);
 
     void update(float errL, float errR, float& velL, float& velR);
@@ -37,13 +37,12 @@ class Robot {
     uint8_t getID();
     uint8_t getStatus();
     void setStatus(uint8_t statusCode);
-    bool update(Command cmd);
+    bool update(command cmd);
     void odometry(Encoders& encoders);
     void setVelocity(uint8_t pinL, uint8_t pinLDir, uint8_t pinR, uint8_t pinRDir);
 
     void reset();
     void reset(const float* paramsDefault);
-    ~Robot();
   private:
     float _parameters[ROBOTPARAMS_LEN];
     float _settings[ROBOTSETTINGS_LEN];
@@ -64,7 +63,7 @@ class Robot {
     size_t _timeSaved = 0;
     const size_t _timeDelta = 10;
 
-    ControllerPID _pid;
+    ControllerPID* _pid;
 };
 
 #endif 

@@ -37,8 +37,6 @@ int trajectory(float distanceFinal, size_t timeFinal, size_t timeTraveled, float
 	}
 }
 
-Encoders::Encoders() {}
-
 Encoders::Encoders(uint8_t pinALeft, uint8_t pinBLeft, uint8_t pinARight, uint8_t pinBRight) {
   _pinAL = pinALeft;
   _pinBL = pinBLeft;

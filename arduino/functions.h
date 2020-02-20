@@ -5,7 +5,6 @@
 
 class Encoders {
   public:
-    Encoders();
     Encoders(uint8_t pinALeft, uint8_t pinBLeft, uint8_t pinARight, uint8_t pinBRight);
     
     void countLeft();

@@ -5,8 +5,6 @@ CyclicBuffer::CyclicBuffer(size_t length) {
   _len = length;
 }
 
-CyclicBuffer::CyclicBuffer() {}
-
 void CyclicBuffer::push(uint8_t item) {
   _buffer[_idx] = item;
   _idx = (_idx + 1) % _len;
@@ -38,26 +36,25 @@ size_t CyclicBuffer::length() {
   return _len;
 }
 
-MessageBuffer::MessageBuffer() {}
-
 MessageBuffer::MessageBuffer(size_t length) {
-  _buffer = CyclicBuffer(length);
+  _buffer = new CyclicBuffer(length);
 }
 
 void MessageBuffer::append(uint8_t reading) {
-  _buffer.push(reading);
+  _buffer->push(reading);
   _updated = true;
 }
 
 bool MessageBuffer::findCommand(uint8_t header) {
   if (_updated) {
-    for (size_t idxHeader = 0; idxHeader < _buffer.length(); idxHeader++) {
-      if (_buffer.get(idxHeader) == header) {
-        size_t len = _buffer.get(idxHeader + idxMsgLen) + msgModeLen;
-        uint8_t* tempMsg = _buffer.get(idxHeader, len);
+    for (size_t idxHeader = 0; idxHeader < _buffer->length(); idxHeader++) {
+      if (_buffer->get(idxHeader) == header) {
+        size_t len = _buffer->get(idxHeader + idxMsgLen) + msgModeLen + 1;
+        uint8_t* tempMsg = _buffer->get(idxHeader, len);
         if (check(tempMsg, len)) {
+          Serial.println("TU JESTEM");
           extract(tempMsg);
-          _buffer.flush(idxHeader, len);
+          _buffer->flush(idxHeader, len);
           return true;
         }
       }
@@ -67,19 +64,18 @@ bool MessageBuffer::findCommand(uint8_t header) {
   return false;
 }
 
-Command MessageBuffer::getCommand() {
+command MessageBuffer::getCommand() {
   return _command;
 }
 
 bool MessageBuffer::check(uint8_t* msg, size_t length) {
-
   uint8_t modulo = 255;
 	uint8_t sum = 0;
-	for (size_t idx = 1; idx < length; idx++) {
+	for (size_t idx = 1; idx < length - 1; idx++) {
 		sum += msg[idx];
 	}
 	sum = modulo - sum;
-	return sum == msg[length];
+	return sum == msg[length - 1];
 }
 
 void MessageBuffer::extract(uint8_t* msg) {
@@ -96,8 +92,4 @@ void MessageBuffer::extract(uint8_t* msg) {
     _command.positions[idx] = msg[idx];
     _command.values[idx] = convertBytes2Float(paramBuffer);
   }
-}
-
-CyclicBuffer::~CyclicBuffer() {
-  delete _buffer;
 }
