@@ -52,7 +52,6 @@ bool MessageBuffer::findCommand(uint8_t header) {
         size_t len = _buffer->get(idxHeader + idxMsgLen) + msgModeLen + 1;
         uint8_t* tempMsg = _buffer->get(idxHeader, len);
         if (check(tempMsg, len)) {
-          Serial.println("TU JESTEM");
           extract(tempMsg);
           _buffer->flush(idxHeader, len);
           return true;
