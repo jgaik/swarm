@@ -10,12 +10,10 @@ void CyclicBuffer::push(uint8_t item) {
   _idx = (_idx + 1) % _len;
 }
 
-uint8_t* CyclicBuffer::get(size_t start, size_t len) {
-  uint8_t* out = new uint8_t[len];
+void CyclicBuffer::get(size_t start, size_t len, uint8_t* out) {
   for (size_t idx = 0; idx < len; idx ++) {
     out[idx] = _buffer[(idx + start) % _len];
   }
-  return out;
 }
 
 uint8_t CyclicBuffer::get(size_t idx) {
@@ -23,6 +21,7 @@ uint8_t CyclicBuffer::get(size_t idx) {
 }
 
 void CyclicBuffer::flush() {
+  delete[] _buffer;
   _buffer = new uint8_t[_len]();
 }
 
@@ -50,12 +49,14 @@ bool MessageBuffer::findCommand(uint8_t header) {
     for (size_t idxHeader = 0; idxHeader < _buffer->length(); idxHeader++) {
       if (_buffer->get(idxHeader) == header) {
         size_t len = _buffer->get(idxHeader + idxMsgLen) + msgModeLen + 1;
-        uint8_t* tempMsg = _buffer->get(idxHeader, len);
+        uint8_t* tempMsg = new uint8_t[len];
+        _buffer->get(idxHeader, len, tempMsg);
         if (check(tempMsg, len)) {
           extract(tempMsg);
           _buffer->flush(idxHeader, len);
           return true;
         }
+        delete[] tempMsg;
       }
     }
     _updated = false;
@@ -78,6 +79,8 @@ bool MessageBuffer::check(uint8_t* msg, size_t length) {
 }
 
 void MessageBuffer::extract(uint8_t* msg) {
+  delete[] _command.positions;
+  delete[] _command.values;
   _command.id = msg[idxRobotID];
   _command.mode = msg[idxRobotMode];
   _command.parametersNumber = (msg[idxMsgLen] - 1) / (PARAMETER_BYTE_LEN + 1);
@@ -88,7 +91,7 @@ void MessageBuffer::extract(uint8_t* msg) {
     for (size_t idxByte = 0; idxByte < PARAMETER_BYTE_LEN; idxByte++) {
       paramBuffer[idxByte] = msg[idxMsgLen + 1 + idx*(PARAMETER_BYTE_LEN + 1) + idxByte + 1];
     }
-    _command.positions[idx] = msg[idx];
+    _command.positions[idx] = msg[idxMsgLen + 1 + idx*(PARAMETER_BYTE_LEN + 1)];
     _command.values[idx] = convertBytes2Float(paramBuffer);
   }
 }

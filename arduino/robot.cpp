@@ -88,7 +88,7 @@ void Robot::odometry(Encoders& encoders) {
 }
 
 void Robot::setVelocity(uint8_t pinL, uint8_t pinLDir, uint8_t pinR, uint8_t pinRDir) {
-  size_t timeF = _settings[0];
+  size_t timeF = (size_t)(_settings[0] * 1000);
   float distFinL, distFinR, distL, distR;
   int errorCode = 0;
 
@@ -167,18 +167,18 @@ void ControllerPID::update(float errL, float errR, float& velL, float& velR) {
   float sumL = _errLSum + _errL;
   float sumR = _errRSum + _errR;
 
-  float velocityL = velL + _errL*_kp + sumL*_ki + _errLPrev*_kd;
-  float velocityR = velR + _errR*_kp + sumR*_ki + _errRPrev*_kd;
+  float velocityL = velL + _errL*_kp + sumL*_ki + (_errL-_errLPrev)*_kd;
+  float velocityR = velR + _errR*_kp + sumR*_ki + (_errR-_errRPrev)*_kd;
 
   if (abs(velocityL) > VEL_LIMIT) {
-    velL += _errL*_kp + _errLSum*_ki + _errLPrev*_kd;
+    velL += _errL*_kp + _errLSum*_ki + (_errL-_errLPrev)*_kd;
   } else {
     velL = velocityL;
     _errLSum = sumL;
   }
 
   if (abs(velocityR) > VEL_LIMIT) {
-    velR += _errR*_kp + _errRSum*_ki + _errRPrev*_kd;
+    velR += _errR*_kp + _errRSum*_ki + (_errR-_errRPrev)*_kd;
   } else {
     velR = velocityR;
     _errRSum = sumR;

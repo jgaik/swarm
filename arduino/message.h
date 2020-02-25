@@ -17,7 +17,7 @@ class CyclicBuffer {
   public:
     CyclicBuffer(size_t length);
     void push(uint8_t item);
-    uint8_t* get(size_t start, size_t length);
+    void get(size_t start, size_t length, uint8_t* out);
     uint8_t get(size_t idx);
     size_t length();
     void flush();
