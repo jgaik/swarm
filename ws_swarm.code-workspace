@@ -24,7 +24,11 @@
 			"mutex": "cpp",
 			"ostream": "cpp",
 			"numeric": "cpp",
-			"thread": "cpp"
+			"thread": "cpp",
+			"chrono": "cpp",
+			"optional": "cpp",
+			"iosfwd": "cpp",
+			"algorithm": "cpp"
 		}
 	}
 }

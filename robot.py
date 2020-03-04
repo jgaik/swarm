@@ -116,8 +116,9 @@ class RobotNetwork:
 		self.xbDevice.open()
 		self.xbNet = self.xbDevice.get_network()
 		self.xbDevice.add_data_received_callback(self.__callbackDataRecv)
+		self.__updateNetworkThread()
 		print(f"[Xbee Network]: Initialisation finished.")
-		Thread(target=self.__updateNetworkThread).start()
+		#Thread(target=self.__updateNetworkThread).start()
 		return self
 
 	def __exit__(self, _, __, ___):
@@ -131,6 +132,8 @@ class RobotNetwork:
 			print(f"[Xbee Network]: Network discovery process started.")
 			self.xbNet.add_device_discovered_callback(self.__callbackDeviceFound)
 			self.xbNet.start_discovery_process()
+			while self.xbNet.is_discovery_running():
+				pass
 		else:
 			print(f"[Xbee Network]: !!!Controller device not open!!!")
 	
@@ -193,6 +196,7 @@ class RobotNetwork:
 		:param distance: distance between the centers of the wheels
 		:param radiusLeft: radius of the left wheel
 		:param radiusRight: radius of the right wheel
+		:param pid: list of pid controller gain values [kp, ki, kd]
 		"""
 
 		data = {
