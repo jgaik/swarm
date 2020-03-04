@@ -47,12 +47,16 @@ bool Robot::update(command cmd) {
   switch (cmd.mode) {
 		case MODE_INIT: 
 		{
-			_id = cmd.id;
-      for (size_t idx = 0; idx < cmd.parametersNumber; idx++) {
-        _parameters[cmd.positions[idx]] = cmd.values[idx];
+      if (_id == 0) _id = cmd.id;
+      if (_id = cmd.id) {
+        for (size_t idx = 0; idx < cmd.parametersNumber; idx++) {
+          _parameters[cmd.positions[idx]] = cmd.values[idx];
+        }
+        _pid->change(_parameters[4],_parameters[5],_parameters[6]);
+        _status = STATUS_IDLE;
+        return true;
       }
-			return true;
-		}
+    }
 
 		default: 
 		{
@@ -64,10 +68,12 @@ bool Robot::update(command cmd) {
 				_timeTraveled = 0;
 				_distL = 0.0f;
 				_distR = 0.0f;
-        _pid->reset(); 
+        _pid->reset();
+        _status = STATUS_WORKING;
 				return true;
 
 			} else {
+        _status = STATUS_ERROR;
 				return false;
 			}
 		}
@@ -138,16 +144,41 @@ void Robot::setVelocity(uint8_t pinL, uint8_t pinLDir, uint8_t pinR, uint8_t pin
 			break;
 		}
 	}
-	if (errorCode == 0) {
-		digitalWrite(pinLDir, DIR(_velL));
-		digitalWrite(pinRDir, DIR(_velR));
+  switch (errorCode) {
+    case 0:
+    {
+      digitalWrite(pinLDir, DIR(_velL));
+      digitalWrite(pinRDir, DIR(_velR));
 
-		analogWrite(pinR, (int)abs(_velR * 255));	
-		analogWrite(pinL, (int)abs(_velL * 255));
-		
-	} else {
-		_mode = MODE_NONE;
-	}
+      analogWrite(pinR, (int)abs(_velR * 255));	
+      analogWrite(pinL, (int)abs(_velL * 255));
+      break;
+    }
+    case TRAJECTORY_ERR:
+    {
+      _mode = MODE_NONE;
+      _status = STATUS_ERROR;
+      analogWrite(pinR, 0);	
+		  analogWrite(pinL, 0);
+      break;
+    }
+    case TRAJECTORY_END:
+    {
+      _mode = MODE_NONE;
+      _status = STATUS_IDLE;
+      analogWrite(pinR, 0);	
+		  analogWrite(pinL, 0);
+      break;
+    }
+    default:
+    {
+      _mode = MODE_NONE;
+      _status = STATUS_ERROR;
+      analogWrite(pinR, 0);	
+		  analogWrite(pinL, 0);
+      break;
+    }
+  }
 }
 
 
@@ -183,6 +214,12 @@ void ControllerPID::update(float errL, float errR, float& velL, float& velR) {
     velR = velocityR;
     _errRSum = sumR;
   }
+}
+
+void ControllerPID::change(float Kp, float Ki, float Kd) {
+  _kp = Kp;
+  _ki = Ki;
+  _kd = Kd;
 }
 
 void ControllerPID::reset() {

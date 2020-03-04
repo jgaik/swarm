@@ -1,6 +1,9 @@
 #ifndef FUNCTIONS_H
 #define FUNCTIONS_H
 
+#define TRAJECTORY_END 1
+#define TRAJECTORY_ERR 2
+
 #include "Arduino.h"
 
 class Encoders {

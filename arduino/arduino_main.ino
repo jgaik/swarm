@@ -27,14 +27,24 @@ void loop() {
   switch (robot.getStatus()) {
     case STATUS_INIT:
     {
-      robot.setStatus(STATUS_IDLE);
+      messageRead(MSG_HEADER);
       break;
     }
-    default:
+    case STATUS_IDLE:
     {
       messageRead(MSG_HEADER);
+      break;
+    }
+    case STATUS_WORKING:
+    {
       robot.setVelocity(pinWheelLeftSpeed, pinWheelLeftDir, pinWheelRightSpeed, pinWheelRightDir);
       robot.odometry(encoders);
+      break;
+    }
+    case STATUS_ERROR:
+    {
+      messageRead(MSG_HEADER);
+      break;
     }
   }
 }

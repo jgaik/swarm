@@ -14,7 +14,7 @@ int trajectory(float distanceFinal, size_t timeFinal, size_t timeTraveled, float
 	float t = (float)timeTraveled / timeFinal;
 	float velMax = distanceFinal / timeFinal / (1 - blend) / velConst;
 	if (velMax > 1.0f)
-		return 1;
+		return TRAJECTORY_ERR;
 
 	if (t < blend) {
 		distanceTraveled = distanceFinal * ( t * t / 2 / blend ) / (1 - blend);
@@ -33,7 +33,7 @@ int trajectory(float distanceFinal, size_t timeFinal, size_t timeTraveled, float
 	} else {
 		distanceTraveled = distanceFinal * 1.0;
 		velocity = 0.0f;
-		return 1;
+		return TRAJECTORY_END;
 	}
 }
 

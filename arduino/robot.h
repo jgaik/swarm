@@ -12,6 +12,7 @@ class ControllerPID {
     ControllerPID(float Kp, float Ki = 0.0f, float Kd = 0.0f);
 
     void update(float errL, float errR, float& velL, float& velR);
+    void change(float Kp, float Ki, float Kd);
     void reset();
   
   private:

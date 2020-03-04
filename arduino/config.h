@@ -32,7 +32,7 @@ const uint8_t pinButton = 4;
 #define STATUS_INIT 0
 #define STATUS_IDLE 1
 #define STATUS_WORKING 2
-#define STATUS_TEST 3
+#define STATUS_ERROR 3
 
 //Message transfer const
 
