@@ -46,6 +46,7 @@ void MessageBuffer::append(uint8_t reading) {
 
 bool MessageBuffer::findCommand(uint8_t header) {
   if (_updated) {
+    _updated = false;
     for (size_t idxHeader = 0; idxHeader < _buffer->length(); idxHeader++) {
       if (_buffer->get(idxHeader) == header) {
         size_t len = _buffer->get(idxHeader + idxMsgLen) + msgModeLen + 1;
@@ -59,7 +60,6 @@ bool MessageBuffer::findCommand(uint8_t header) {
         delete[] tempMsg;
       }
     }
-    _updated = false;
   }
   return false;
 }
