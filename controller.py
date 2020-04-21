@@ -30,10 +30,10 @@ class Controller():
 		self._commandData = {}
 
 	def run(self):
-		with self._swarm:
+		with self._swarm, self._camera:
 			self._online = True
 			while self._active:
-				#self._markers = self._camera.read(server.READ_MARKERS)['markers']
+				self._markers = self._camera.read(server.READ_MARKERS)['markers']
 				if self._commandReady:
 					if self._commandData['task'] == "Direct control":
 						self._commandData['data']['pathMode'] = CODELIST[self._commandData['data']['pathMode']]
