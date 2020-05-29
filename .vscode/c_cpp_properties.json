@@ -3,15 +3,15 @@
         {
             "name": "Linux",
             "includePath": [
-                "/home/jgaik/Downloads/arduino-1.8.9/tools/**",
-                "/home/jgaik/Downloads/arduino-1.8.9/hardware/arduino/avr/**",
-                "/home/jgaik/Downloads/arduino-1.8.9/hardware/tools",
-                "/home/jgaik/Downloads/arduino-1.8.9/hardware/tools/avr/avr/include",
-                "/home/jgaik/Downloads/arduino-1.8.9/hardware/arduino/avr/cores/arduino",
-                "/home/jgaik/Downloads/arduino-1.8.9/hardware/arduino/avr/variants/standard"
+                "/home/jgaik/.local/opt/arduino/tools/**",
+                "/home/jgaik/.local/opt/arduino/hardware/arduino/avr/**",
+                "/home/jgaik/.local/opt/arduino/hardware/tools",
+                "/home/jgaik/.local/opt/arduino/hardware/tools/avr/avr/include",
+                "/home/jgaik/.local/opt/arduino/hardware/arduino/avr/cores/arduino",
+                "/home/jgaik/.local/opt/arduino/hardware/arduino/avr/variants/standard"
             ],
             "forcedInclude": [
-                "/home/jgaik/Downloads/arduino-1.8.9/hardware/arduino/avr/cores/arduino/Arduino.h"
+                "/home/jgaik/.local/opt/arduino/hardware/arduino/avr/cores/arduino/Arduino.h"
             ],
             "intelliSenseMode": "gcc-x64",
             "compilerPath": "/usr/bin/clang",

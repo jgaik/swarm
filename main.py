@@ -7,7 +7,6 @@ from threading import Thread
 
 import concurrent.futures
 
-
 class App:
     _time_refresh = 300
 

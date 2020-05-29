@@ -1,10 +1,12 @@
+from swarm.templates import module
 import socket
 import json
-
+from collections.abc import Mapping
 import enum
 import transitions
 import multiprocessing as mp
 import threading as th
+import sys
 
 HEADER_LEN = 10
 BUFFER_LEN = 16
@@ -17,17 +19,13 @@ class ServerReadMethods(enum.Enum):
 
 
 class Client:
-    svTcpIP = '192.168.43.95'
-    svTcpPort = 2020
 
-    def __init__(self, tcp_ip=svTcpIP, tcp_port=svTcpPort):
-        self.svTcpIP = tcp_ip
-        self.svTcpPort = tcp_port
+    def __init__(self):
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    def connect(self):
+    def connect(self, tcp_ip, tcp_port):
         try:
-            self.server.connect((self.svTcpIP, self.svTcpPort))
+            self.server.connect((tcp_ip, tcp_port))
             return True
         except:
             print("Camera server error")
@@ -71,15 +69,19 @@ class Requests(enum.Enum):
     END = enum.auto()
 
 
-class FSM_Camera(object):
+class Requirements(module.Requirements):
+    modulelist = ['gui']
+
+
+class FSM(object):
     # pylint: disable=no-member
     _ok = True
-    _input = None
-    _output = None
     _request = None
     _request_new = False
 
-    def __init__(self):
+    def __init__(self, pipe):
+        self._pipe = pipe
+        self._requirements = Requirements()
         self.serverclient = Client()
         self._th_requests = th.Thread(target=self._thread_read_requests)
         self.machine = transitions.Machine(model=self,
@@ -124,19 +126,22 @@ class FSM_Camera(object):
                                     dest=States.END,
                                     conditions=self.request_END)
 
-    def start(self, pipe_input, pipe_output):
-        self._input = pipe_input
-        self._output = pipe_output
-        self.to_INIT()
+    def start(self):
         self._th_requests.start()
-        while not self.is_END():
+        self.to_INIT()
+        while not self._request == Requests.END:
             self.change_state()
+        self.to_END()
 
     def _thread_read_requests(self):
         while not self.is_END():
-            if self._input.poll():
-                self._request = self._input.recv()
-                self._request_new = True
+            if self._pipe.poll():
+                recv = self._pipe.recv()
+                if isinstance(recv, Mapping):
+                    self._requirements.set_data(recv['name'], recv['data'])
+                else:
+                    self._request = self._pipe.recv()
+                    self._request_new = True
 
     def request_READ(self):
         return self._request == Requests.READ
@@ -145,18 +150,21 @@ class FSM_Camera(object):
         return self._request == Requests.END
 
     def on_enter_IDLE(self):
-        self._output.send(self.state)
+        self._pipe.send(self.state)
 
     def on_enter_INIT(self):
-        self._ok &= self.serverclient.connect()
+        while not self._requirements.have_data('gui'):
+            pass
+        data_gui = self._requirements.get_data('gui')
+        self._ok &= self.serverclient.connect(**data_gui)
         self._ok &= int(self.serverclient.read(ServerReadMethods.CHECK))
 
     def on_enter_ERROR(self):
-        self._output.send(self.state)
+        self._pipe.send(self.state)
 
     def on_enter_END(self):
         self.serverclient.close()
-        self._output.send(States.END)
+        self._pipe.send(States.END)
 
     def on_enter_READ(self):
         self._request_new = False
@@ -164,4 +172,4 @@ class FSM_Camera(object):
         if data == False:
             self._ok &= False
         else:
-            self._output.send(data)
+            self._pipe.send(data)

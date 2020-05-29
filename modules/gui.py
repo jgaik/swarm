@@ -1,7 +1,12 @@
+import transitions
 import tkinter as tk
 from tkinter import ttk
 import numpy as np
 import serial.tools.list_ports as ports
+import enum
+import threading as th
+from collections.abc import Mapping
+from swarm.templates import module
 
 
 def validateFloatInput(input):
@@ -370,6 +375,7 @@ class GuiSetup:
     def __init__(self, master, startEvent, closeEvent):
         self.master = master
         self.wSetup = tk.Toplevel(self.master)
+        self.hide()
         self.wSetup.title('Setup')
         self.wSetup.protocol("WM_DELETE_WINDOW", closeEvent)
 
@@ -439,7 +445,7 @@ class GuiSetup:
             if self.cmbTcpPort.current() == -1:
                 self._file_ports.write(f"\n{self.tcp_port}")
             if self.cmbBaudrate.current() == -1:
-                self._file_baudrates.write(f"\n{self.baudrate}")
+                self._file_baudrates.write(f"\n{self.port_baudrate}")
 
             self.btnStart.grid_remove()
             self.loadBar.grid()
@@ -453,10 +459,120 @@ class GuiSetup:
         self.loadBar.stop()
         self.loadBar.grid_remove()
         self.btnStart.grid()
-        self.wSetup.withdraw()
+        self.hide()
         self._file_baudrates.close()
         self._file_ips.close()
         self._file_ports.close()
 
-    def status(self):
-        return self.wSetup.state() == 'normal'
+    def show(self):
+        if (self.wSetup.state() == 'withdrawn'):
+            self.wSetup.deiconify()
+
+    def hide(self):
+        if (self.wSetup.state() == 'normal'):
+            self.wSetup.withdraw()
+
+    def data(self):
+        return {
+            'robot': {
+                'port_num': self.port_num,
+                'port_baudrate': self.port_baudrate
+            },
+            'camera': {
+                'tcp_ip': self.tcp_ip,
+                'tcp_port': self.tcp_port
+            }
+        }
+
+
+class States(enum.Enum):
+    INIT = enum.auto()
+    IDLE = enum.auto()
+    OPERATION = enum.auto()
+    UPDATE = enum.auto()
+    ERROR = enum.auto()
+    END = enum.auto()
+
+
+class Requests(enum.Enum, module.Requests):
+    END = enum.auto()
+
+
+class Requirements(module.Requirements):
+    modulelist = ['tasks', 'network']
+
+
+class FSM(object):
+    #pylint: disable=no-member
+    _ok = True
+    _data = None
+
+    def __init__(self, pipe):
+        self._pipe = pipe
+        self._requirements = Requirements()
+        self._request = Requests()
+        self.root = tk.Tk()
+        self._th_loop = th.Thread(target=self._thread_loop)
+        self._th_requests = th.Thread(target=self._thread_read_requests)
+        self.gui_setup = GuiSetup(
+            self.root, self.event_setup, self.event_end)
+        self.gui_main = GuiMain(self.root, self.event_start)
+        self.root.withdraw()
+        self.master.protocol("WM_DELETE_WINDOW", self.event_end)
+        self.machine = transitions.Machine(model=self,
+                                           states=States,
+                                           initial='none')
+
+    def _thread_loop(self):
+        self.root.mainloop()
+
+    def _thread_read_requests(self):
+        while not self.is_END():
+            if self._pipe.poll():
+                recv = self._pipe.recv()
+                if isinstance(recv, Mapping):
+                    self._requirements.set_data(recv['name'], recv['data'])
+                else:
+                    self._request.set_current(recv)
+
+    def start(self):
+        self._th_loop.start()
+        self._th_requests.start()
+        self.to_INIT()
+        while not self._request == Requests.END:
+            self.change_state()
+
+    def on_enter_IDLE(self):
+        self.send_data()
+
+    def on_enter_INIT(self):
+        self.gui_setup.show()
+
+    def on_enter_END(self):
+        self.send_data()
+        while not self._request.is_request(Requests.END):
+            pass
+        self.root.destroy()
+
+    def send_data(self, data=None):
+        if data is None:
+            self._pipe.send(self.state)
+        else:
+            _data = {
+                'state': self.state,
+                'data': data
+            }
+            self._pipe.send(_data)
+
+    def event_setup(self):
+        if self.gui_setup.start():
+            self._pipe.send({
+                'name': __name__,
+                'data': self.gui_setup.data()
+            })
+
+    def event_end(self):
+        self.to_END()
+
+    def event_start(self):
+        pass
