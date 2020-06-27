@@ -1,7 +1,6 @@
 from swarm.templates import module
 import socket
 import json
-from collections.abc import Mapping
 import enum
 import transitions
 import multiprocessing as mp
@@ -64,26 +63,23 @@ class States(enum.Enum):
     END = enum.auto()
 
 
-class Requests(enum.Enum):
+class Requests(module.BaseRequests):
     READ = enum.auto()
     END = enum.auto()
 
 
-class Requirements(module.Requirements):
+class Requirements(module.BaseRequirements):
     modulelist = ['gui']
 
 
-class FSM(object):
+class FSM(module.BaseFSM):
     # pylint: disable=no-member
     _ok = True
-    _request = None
-    _request_new = False
 
     def __init__(self, pipe):
-        self._pipe = pipe
-        self._requirements = Requirements()
+        super(FSM, self).__init__(pipe, Requests(), Requirements())
         self.serverclient = Client()
-        self._th_requests = th.Thread(target=self._thread_read_requests)
+
         self.machine = transitions.Machine(model=self,
                                            states=States,
                                            initial='none')
@@ -101,14 +97,13 @@ class FSM(object):
         self.machine.add_transition(trigger='change_state',
                                     source=States.IDLE,
                                     dest=States.END,
-                                    conditions=self.request_END,
+                                    conditions=self._request.is_END,
                                     unless='_ok')
 
         self.machine.add_transition(trigger='change_state',
                                     source=States.IDLE,
                                     dest=States.READ,
-                                    conditions=[
-                                        self.request_READ, '_request_new'],
+                                    conditions=self._request.is_READ,
                                     unless='_ok')
 
         self.machine.add_transition(trigger='change_state',
@@ -126,35 +121,11 @@ class FSM(object):
                                     dest=States.END,
                                     conditions=self.request_END)
 
-    def start(self):
-        self._th_requests.start()
-        self.to_INIT()
-        while not self._request == Requests.END:
-            self.change_state()
-        self.to_END()
-
-    def _thread_read_requests(self):
-        while not self.is_END():
-            if self._pipe.poll():
-                recv = self._pipe.recv()
-                if isinstance(recv, Mapping):
-                    self._requirements.set_data(recv['name'], recv['data'])
-                else:
-                    self._request = self._pipe.recv()
-                    self._request_new = True
-
-    def request_READ(self):
-        return self._request == Requests.READ
-
-    def request_END(self):
-        return self._request == Requests.END
-
     def on_enter_IDLE(self):
         self._pipe.send(self.state)
 
     def on_enter_INIT(self):
-        while not self._requirements.have_data('gui'):
-            pass
+        self._requirements.wait_gui()
         data_gui = self._requirements.get_data('gui')
         self._ok &= self.serverclient.connect(**data_gui)
         self._ok &= int(self.serverclient.read(ServerReadMethods.CHECK))
@@ -164,7 +135,7 @@ class FSM(object):
 
     def on_enter_END(self):
         self.serverclient.close()
-        self._pipe.send(States.END)
+        self._pipe.send(self.state)
 
     def on_enter_READ(self):
         self._request_new = False

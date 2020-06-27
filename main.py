@@ -1,12 +1,8 @@
-import numpy as np
-from controller import Controller
-import tkinter as tk
-from tkinter import ttk
-import gui
-from threading import Thread
-
+from swarm.modules import gui
 import concurrent.futures
+import multiprocessing as mp
 
+'''
 class App:
     _time_refresh = 300
 
@@ -53,8 +49,13 @@ class App:
         self.th.start()
         self.update()
 
+'''
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = App(root)
-    root.mainloop()
+    p_gui = mp.Pipe()
+    m_gui = gui.FSM(p_gui[1])
+
+    proc = mp.Process(target=m_gui.start)
+
+    proc.start()
+    proc.join()

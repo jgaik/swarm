@@ -1,3 +1,7 @@
+from collections.abc import Mapping
+import transitions
+import enum
+from swarm.templates import module
 import time
 from typing import List
 from threading import Thread
@@ -105,29 +109,30 @@ class RobotList:
 
 
 class RobotNetwork:
-    xbPortnum = "/dev/ttyUSB0"
-    xbBaudrate = "9600"
-    xbNetDiscoveryTimeOut = 3.2
+    xbNetDiscoveryTimeOut = 5
 
-    def __init__(self, portnum=xbPortnum, baudrate=xbBaudrate):
-        self.xbBaudrate = baudrate
-        self.xbPortnum = portnum
-        self.xbDevice = xb.XBeeDevice(self.xbPortnum, self.xbBaudrate)
-        self.xbRemotes = None
+    def __init__(self):
         self.robotList = RobotList()
 
-    def __enter__(self):
+    def connect(self, portnum, baudrate):
         print("[Xbee network]: Initialising..")
-        self.xbDevice.open()
-        self.xbNet = self.xbDevice.get_network()
-        self.xbDevice.add_data_received_callback(self.__callbackDataRecv)
-        self.__updateNetworkThread()
-        print(f"[Xbee Network]: Initialisation finished.")
-        # Thread(target=self.__updateNetworkThread).start()
-        return self
+        self.xbDevice = xb.XBeeDevice(portnum, baudrate)
+        try:
+            self.xbDevice.open()
+            self.xbNet = self.xbDevice.get_network()
+            self.xbDevice.add_data_received_callback(self.__callbackDataRecv)
+            self.xbNet.add_device_discovered_callback(
+                self.__callbackDeviceFound)
+            self.xbNet.set_discovery_timeout(self.xbNetDiscoveryTimeOut)
+            self.xbNet.start_discovery_process()
+            while self.xbNet.is_discovery_running():
+                pass
+            print(f"[Xbee Network]: Initialisation finished.")
+            return True
+        except:
+            return False
 
-    def __exit__(self, _, __, ___):
-        self.xbNet.stop_discovery_process()
+    def disconnect(self):
         self.xbDevice.del_data_received_callback(self.__callbackDataRecv)
         self.xbDevice.close()
         print("[Xbee Network]: Connection closed.")
@@ -135,9 +140,6 @@ class RobotNetwork:
     def __updateNetworkThread(self):
         if self.xbDevice._is_open:
             print(f"[Xbee Network]: Network discovery process started.")
-            self.xbNet.add_device_discovered_callback(
-                self.__callbackDeviceFound)
-            self.xbNet.start_discovery_process()
             while self.xbNet.is_discovery_running():
                 pass
         else:
@@ -235,3 +237,68 @@ class RobotNetwork:
                 data["params"].append([val + 3, pid[val]])
 
         self.__sendData(data, robotID)
+
+
+class States(enum.Enum):
+    INIT = enum.auto()
+    IDLE = enum.auto()
+    ERROR = enum.auto()
+    END = enum.auto()
+
+
+class Requests(module.BaseRequests):
+    END = enum.auto()
+
+
+class Requirements(module.BaseRequirements):
+    modulelist = ['gui']
+
+
+class FSM(module.BaseFSM):
+    #pylint: disable=no-member
+    _ok = True
+
+    def __init__(self, pipe):
+        super(FSM, self).__init__(pipe, Requests(), Requirements())
+        self.network = RobotNetwork()
+
+        self.machine = transitions.Machine(model=self,
+                                           states=States,
+                                           initial='none')
+
+        self.machine.add_transition(trigger='change_state',
+                                    source=States.INIT,
+                                    dest=States.IDLE,
+                                    conditions=self._ok)
+
+        self.machine.add_transition(trigger='change_state',
+                                    source=States.INIT,
+                                    dest=States.ERROR,
+                                    unless=self._ok)
+
+        self.machine.add_transition(trigger='change_state',
+                                    source=States.IDLE,
+                                    dest=States.ERROR,
+                                    unless=self._ok)
+
+        self.machine.add_transition(trigger='change_state',
+                                    source=States.ERROR,
+                                    dest=States.END,
+                                    conditions=self._request.is_END)
+
+        self.machine.add_transition(trigger='change_state',
+                                    source=States.IDLE,
+                                    dest=States.END,
+                                    conditions=self._request.is_END)
+
+    def on_enter_INIT(self):
+        self._requirements.wait_gui()
+        data_gui = self._requirements.get_data('gui')
+        self._ok &= self.network.connect(**data_gui)
+
+    def on_enter_END(self):
+        self.network.disconnect()
+        self._pipe.send(self.state)
+
+    def on_enter_ERROR(self):
+        self._pipe.send(self.state)

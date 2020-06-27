@@ -10,7 +10,7 @@ from swarm.templates import module
 
 
 def validateFloatInput(input):
-    if input is "" or "-":
+    if input is "" or input is "-":
         return True
     try:
         int(input.replace('.', '', 1))
@@ -355,6 +355,9 @@ class GuiMain:
                 self.markers.updateMarker(
                     mark, markersNew[mark][0:3], self.scale)
 
+    def addTasks(self, tasklist):
+        self.cmbTasks['values'].extend([x for x in tasklist])
+
     def selectedTask(self, event=None):
         self.tasks[self.cmbTasks.current()].show()
 
@@ -474,7 +477,7 @@ class GuiSetup:
 
     def data(self):
         return {
-            'robot': {
+            'network': {
                 'port_num': self.port_num,
                 'port_baudrate': self.port_baudrate
             },
@@ -489,70 +492,87 @@ class States(enum.Enum):
     INIT = enum.auto()
     IDLE = enum.auto()
     OPERATION = enum.auto()
-    UPDATE = enum.auto()
     ERROR = enum.auto()
     END = enum.auto()
 
 
-class Requests(enum.Enum, module.Requests):
+class Requests(module.BaseRequests):
+    DONE = enum.auto()
     END = enum.auto()
+    ERROR = enum.auto()
 
 
-class Requirements(module.Requirements):
-    modulelist = ['tasks', 'network']
+class Requirements(module.BaseRequirements):
+    modulelist = ['tasks', 'network', 'camera']
 
 
-class FSM(object):
+class FSM(module.BaseFSM):
     #pylint: disable=no-member
     _ok = True
-    _data = None
+    _online = False
 
     def __init__(self, pipe):
-        self._pipe = pipe
-        self._requirements = Requirements()
-        self._request = Requests()
+        super(FSM, self).__init__(pipe, Requests(), Requirements())
         self.root = tk.Tk()
         self._th_loop = th.Thread(target=self._thread_loop)
-        self._th_requests = th.Thread(target=self._thread_read_requests)
         self.gui_setup = GuiSetup(
             self.root, self.event_setup, self.event_end)
         self.gui_main = GuiMain(self.root, self.event_start)
         self.root.withdraw()
-        self.master.protocol("WM_DELETE_WINDOW", self.event_end)
+        self.root.protocol("WM_DELETE_WINDOW", self.event_end)
         self.machine = transitions.Machine(model=self,
                                            states=States,
                                            initial='none')
+        self.machine.add_transition(trigger='change_state',
+                                    source=States.INIT,
+                                    dest=States.IDLE,
+                                    conditions=self._ok)
+
+        self.machine.add_transition(trigger='change_state',
+                                    source=[States.IDLE, States.OPERATION],
+                                    dest='=',
+                                    after=self.update,
+                                    conditions=self._requirements.have_camera,
+                                    unless=self._request.is_END)
+
+        self.machine.add_transition(trigger='change_state',
+                                    source=States.OPERATION,
+                                    dest=States.IDLE,
+                                    conditions=self._request.is_END,
+                                    unless=self._request.is_ERROR)
 
     def _thread_loop(self):
-        self.root.mainloop()
-
-    def _thread_read_requests(self):
-        while not self.is_END():
-            if self._pipe.poll():
-                recv = self._pipe.recv()
-                if isinstance(recv, Mapping):
-                    self._requirements.set_data(recv['name'], recv['data'])
-                else:
-                    self._request.set_current(recv)
+        self.to_INIT()
+        while self._online:
+            self.change_state()
 
     def start(self):
+        self._online = True
         self._th_loop.start()
         self._th_requests.start()
-        self.to_INIT()
-        while not self._request == Requests.END:
-            self.change_state()
+        self.root.mainloop()
 
     def on_enter_IDLE(self):
         self.send_data()
 
     def on_enter_INIT(self):
         self.gui_setup.show()
+        self._requirements.wait_data(['tasks', 'network'])
+        data = self._requirements.get_data(['tasks', 'network'])
+        self.gui_main.addTasks(data['tasks'])
+        self.gui_main.setIds(data['network'])
+        self.gui_setup.stop()
+        self.root.deiconify()
+        self._ok = True
 
     def on_enter_END(self):
-        self.send_data()
-        while not self._request.is_request(Requests.END):
-            pass
+        self._pipe.send(self.state)
+        self._request.wait_END()
+        self._online = False
         self.root.destroy()
+
+    def on_enter_OPERATION(self):
+        pass
 
     def send_data(self, data=None):
         if data is None:
@@ -574,5 +594,8 @@ class FSM(object):
     def event_end(self):
         self.to_END()
 
+    def update(self):
+        self.gui_main.drawMarkers(self._requirements.get_data('camera'))
+
     def event_start(self):
-        pass
+        data = self.gui_main.getData()
