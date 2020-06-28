@@ -8,17 +8,22 @@ from threading import Thread
 import digi.xbee.devices as xb
 import struct
 
-ROBOTPATH_LINE = 1
-ROBOTPATH_ARC = 2
-ROBOTPATH_TURN = 3
-ROBOTPATH_VELOCITY = 4
+
+class RobotPath(enum.Enum):
+    LINE = 1
+    ARC = 2
+    TURN = 3
+    VELOCITY = 4
+
+
+class RobotStatus(enum.Enum):
+    IDLE = 0
+    REC_OK = 1
+    REC_ERR = 2
+
 
 ROBOTMODE_INIT = 5
 ROBOTNET_BROADCAST = 255
-
-ROBOTSTATUS_IDLE = 0
-ROBOTSTATUS_REC_OK = 1
-ROBOTSTATUS_REC_ERR = 2
 
 
 class Message:
@@ -72,7 +77,7 @@ class RobotList:
         if not self.checkId(xbeeDevice.get_16bit_addr().get_lsb()):
             self.ids.append(xbeeDevice.get_16bit_addr().get_lsb())
             self.devices.append(xbeeDevice)
-            self.status.append(ROBOTSTATUS_IDLE)
+            self.status.append(RobotStatus.IDLE)
             self.buffer.append('')
             print(
                 f"[Xbee Network]: Robot {xbeeDevice.get_16bit_addr().get_lsb()} added to list")
@@ -81,7 +86,7 @@ class RobotList:
         for dev in xbeeList:
             self.ids.append(dev.get_16bit_addr().get_lsb())
             self.devices.append(dev)
-            self.status.append(ROBOTSTATUS_IDLE)
+            self.status.append(RobotStatus.IDLE)
             self.buffer.append('')
 
     def getStatus(self, robotId):
@@ -91,7 +96,7 @@ class RobotList:
             print(f"[Xbee Network]: !!!Unknown robot address ({robotId})!!!")
 
     def setStatus(self, robotId, statusCode):
-        assert (statusCode in [ROBOTSTATUS_IDLE, ROBOTSTATUS_REC_ERR, ROBOTSTATUS_REC_OK]),\
+        assert (statusCode in RobotStatus.__members__.keys()),\
             f"[Xbee Network]: !!!Unknown status code!!!"
         try:
             self.status[self.ids.index(robotId)] = statusCode
@@ -155,9 +160,11 @@ class RobotNetwork:
                 self.xbDevice.send_data_async(remote, msg())
                 print(
                     f"[Xbee Network]: Sending message: {' '.join([str(m) for m in msg()])}")
+                return True
             except:
                 print(
                     f"[Xbee Network]: !!!Error sending the data to device {robotID}!!!")
+                return False
 
     def __callbackDataRecv(self, xbeeMsg: xb.XBeeMessage):
         id = xbeeMsg.remote_device.get_16bit_addr().get_lsb()
@@ -203,7 +210,7 @@ class RobotNetwork:
         for pIdx in range(len(pathParameters)):
             data["params"].append([pIdx, pathParameters[pIdx]])
 
-        self.__sendData(data, robotID)
+        return self.__sendData(data, robotID)
 
     def setRobotParameters(self, robotID, distance=None, radiusLeft=None, radiusRight=None, pid=None):
         """
@@ -236,7 +243,7 @@ class RobotNetwork:
             for val in range(3):
                 data["params"].append([val + 3, pid[val]])
 
-        self.__sendData(data, robotID)
+        return self.__sendData(data, robotID)
 
 
 class States(enum.Enum):
@@ -302,3 +309,5 @@ class FSM(module.BaseFSM):
 
     def on_enter_ERROR(self):
         self._pipe.send(self.state)
+
+    def
