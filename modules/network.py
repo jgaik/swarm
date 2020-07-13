@@ -4,7 +4,7 @@ import enum
 from swarm.templates import module
 import time
 from typing import List
-from threading import Thread
+import threading as th
 import digi.xbee.devices as xb
 import struct
 
@@ -17,6 +17,7 @@ class RobotPath(enum.Enum):
 
 
 class RobotStatus(enum.Enum):
+    INIT = -1
     IDLE = 0
     REC_OK = 1
     REC_ERR = 2
@@ -59,58 +60,83 @@ class Message:
         pass
 
 
+class Robot:
+
+    id = -1
+    device = None
+    status = -1
+
+    def __init__(self, id, device):
+        self.id = id
+        self.device = device
+        self.status = RobotStatus.INIT
+        self.buffer = ''
+
+    def update(self, buffer_new):
+        self.buffer += buffer_new
+        return self._check_buffer()
+
+    def _check_buffer(self):
+        pass
+
+
 class RobotList:
 
     def __init__(self):
-        self.ids = []
-        self.devices = []
-        self.status = []
-        self.buffer = []
+        self.robots = {}
+        self._event_status_update = th.Event()
 
-    def getDevice(self, robotId) -> xb.RemoteXBeeDevice:
+    def get_robot_device(self, robotId) -> xb.RemoteXBeeDevice:
         try:
-            return self.devices[self.ids.index(robotId)]
+            return self.robots[robotId].device
         except ValueError:
             print(f"[Xbee Network]: !!!Unknown robot address ({robotId})!!!")
 
-    def addDevice(self, xbeeDevice: xb.RemoteXBeeDevice):
-        if not self.checkId(xbeeDevice.get_16bit_addr().get_lsb()):
-            self.ids.append(xbeeDevice.get_16bit_addr().get_lsb())
-            self.devices.append(xbeeDevice)
-            self.status.append(RobotStatus.IDLE)
-            self.buffer.append('')
+    def add_robot(self, xbeeDevice: xb.RemoteXBeeDevice):
+        if not self.check_id(xbeeDevice.get_16bit_addr().get_lsb()):
+            id = xbeeDevice.get_16bit_addr().get_lsb()
+            self.robots[id] = Robot(id, xbeeDevice)
             print(
                 f"[Xbee Network]: Robot {xbeeDevice.get_16bit_addr().get_lsb()} added to list")
 
-    def addDevices(self, xbeeList: List[xb.RemoteXBeeDevice]):
+    def add_robots(self, xbeeList: List[xb.RemoteXBeeDevice]):
         for dev in xbeeList:
-            self.ids.append(dev.get_16bit_addr().get_lsb())
-            self.devices.append(dev)
-            self.status.append(RobotStatus.IDLE)
-            self.buffer.append('')
+            id = dev.get_16bit_addr().get_lsb()
+            self.robots[id] = Robot(id, dev)
 
-    def getStatus(self, robotId):
+    def get_robot_status(self, robotId):
         try:
-            return self.status[self.ids.index(robotId)]
+            return self.robots[robotId].status
         except ValueError:
             print(f"[Xbee Network]: !!!Unknown robot address ({robotId})!!!")
 
-    def setStatus(self, robotId, statusCode):
-        assert (statusCode in RobotStatus.__members__.keys()),\
-            f"[Xbee Network]: !!!Unknown status code!!!"
+    def get_status(self):
         try:
-            self.status[self.ids.index(robotId)] = statusCode
+            return dict(zip(self.robots.keys(), [self.robots[x].status for x in self.robots]))
+        finally:
+            self._event_status_update.clear()
+
+    def update_robot(self, robotId, buffer_new):
+        try:
+            if self.robots[robotId].update(buffer_new):
+                self._event_status_update.set()
         except ValueError:
             print(f"[Xbee Network]: !!!Unknown robot address ({robotId})!!!")
 
-    def getLength(self):
-        return len(self.ids)
+    def get_length(self):
+        return len(self.robots)
 
-    def getIds(self):
-        return self.ids
+    def get_ids(self):
+        return self.robots.keys()
 
-    def checkId(self, robotId):
-        return robotId in self.ids
+    def check_id(self, robotId):
+        return robotId in self.robots.keys()
+
+    def is_updated(self):
+        return self._event_status_update.is_set()
+
+    def wait_update(self):
+        self._event_status_update.wait()
 
 
 class RobotNetwork:
@@ -156,7 +182,7 @@ class RobotNetwork:
             self.xbDevice.send_data_broadcast(msg())
         else:
             try:
-                remote = self.robotList.getDevice(robotID)
+                remote = self.robotList.get_robot_device(robotID)
                 self.xbDevice.send_data_async(remote, msg())
                 print(
                     f"[Xbee Network]: Sending message: {' '.join([str(m) for m in msg()])}")
@@ -169,13 +195,12 @@ class RobotNetwork:
     def __callbackDataRecv(self, xbeeMsg: xb.XBeeMessage):
         id = xbeeMsg.remote_device.get_16bit_addr().get_lsb()
         msg = xbeeMsg.data.decode('utf-8')
-
-        print(f"(Robot {id}): {msg}")
+        self.robotList.update_robot(id, msg)
 
     def __callbackDeviceFound(self, xbeeRemote: xb.RemoteXBeeDevice):
         id = xbeeRemote.get_16bit_addr().get_lsb()
         print(f"[Xbee Network]: Robot {id} found")
-        self.robotList.addDevice(xbeeRemote)
+        self.robotList.add_robot(xbeeRemote)
         self.setRobotParameters(id)
 
     def setRobotVelocity(self, robotID, pathMode, pathParameters):
@@ -188,18 +213,18 @@ class RobotNetwork:
                 ROBOTPATH_TURN [time, angle distance (radians)]
                 ROBOTPATH_VELOCITY [time, velocityLeft (-1.0 to 1.0), velocityRight (-1.0 to 1.0)]
         """
-        if pathMode == ROBOTPATH_ARC:
+        if pathMode == RobotPath.ARC:
             assert (len(pathParameters) ==
                     3), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
             assert (
                 pathParameters[2] != 0), f"[Xbee Network]: !!!Incorect parameter - arc radius cannot be 0!!!"
-        if pathMode == ROBOTPATH_LINE:
+        if pathMode == RobotPath.LINE:
             assert (len(pathParameters) ==
                     2), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
-        if pathMode == ROBOTPATH_TURN:
+        if pathMode == RobotPath.TURN:
             assert (len(pathParameters) ==
                     2), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
-        if pathMode == ROBOTPATH_VELOCITY:
+        if pathMode == RobotPath.VELOCITY:
             assert (len(pathParameters) ==
                     3), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
         data = {
@@ -309,5 +334,3 @@ class FSM(module.BaseFSM):
 
     def on_enter_ERROR(self):
         self._pipe.send(self.state)
-
-    def
