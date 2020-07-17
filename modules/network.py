@@ -142,8 +142,8 @@ class RobotList:
 class RobotNetwork:
     xbNetDiscoveryTimeOut = 5
 
-    def __init__(self):
-        self.robotList = RobotList()
+    def __init__(self, robotlist):
+        self.robotList = robotlist
 
     def connect(self, portnum, baudrate):
         print("[Xbee network]: Initialising..")
@@ -275,6 +275,8 @@ class States(enum.Enum):
     INIT = enum.auto()
     IDLE = enum.auto()
     ERROR = enum.auto()
+    CONTROL = enum.auto()
+    UPDATE = enum.auto()
     END = enum.auto()
 
 
@@ -292,36 +294,79 @@ class FSM(module.BaseFSM):
 
     def __init__(self, pipe):
         super(FSM, self).__init__(pipe, Requests(), Requirements())
-        self.network = RobotNetwork()
+        self.list_robots = RobotList()
+        self.network = RobotNetwork(self.list_robots)
+
+        list_transitions = [
+            {
+                'trigger': 'change_state',
+                'source': States.INIT,
+                'dest': States.IDLE,
+                'conditions': self._ok,
+                'unless': False
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.INIT,
+                'dest': States.ERROR,
+                'conditions': True,
+                'unless': self._ok
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.IDLE,
+                'dest': States.ERROR,
+                'conditions': True,
+                'unless': self._ok
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.ERROR,
+                'dest': States.END,
+                'conditions': self._request.is_END,
+                'unless': False
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.IDLE,
+                'dest': States.END,
+                'conditions': self._request.is_END,
+                'unless': False
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.IDLE,
+                'dest': States.CONTROL,
+                'conditions': True,
+                'unless': False
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.CONTROL,
+                'dest': States.IDLE,
+                'conditions': True,
+                'unless': False
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.IDLE,
+                'dest': States.UPDATE,
+                'conditions': self.list_robots.is_updated,
+                'unless': False
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.UPDATE,
+                'dest': States.IDLE,
+                'conditions': True,
+                'unless': False
+            }
+        ]
 
         self.machine = transitions.Machine(model=self,
                                            states=States,
+                                           transitions=list_transitions,
                                            initial='none')
-
-        self.machine.add_transition(trigger='change_state',
-                                    source=States.INIT,
-                                    dest=States.IDLE,
-                                    conditions=self._ok)
-
-        self.machine.add_transition(trigger='change_state',
-                                    source=States.INIT,
-                                    dest=States.ERROR,
-                                    unless=self._ok)
-
-        self.machine.add_transition(trigger='change_state',
-                                    source=States.IDLE,
-                                    dest=States.ERROR,
-                                    unless=self._ok)
-
-        self.machine.add_transition(trigger='change_state',
-                                    source=States.ERROR,
-                                    dest=States.END,
-                                    conditions=self._request.is_END)
-
-        self.machine.add_transition(trigger='change_state',
-                                    source=States.IDLE,
-                                    dest=States.END,
-                                    conditions=self._request.is_END)
 
     def on_enter_INIT(self):
         self._requirements.wait_gui()
@@ -330,7 +375,16 @@ class FSM(module.BaseFSM):
 
     def on_enter_END(self):
         self.network.disconnect()
-        self._pipe.send(self.state)
+        self.send_data()
 
     def on_enter_ERROR(self):
+        self.send_data()
+
+    def on_enter_IDLE(self):
         self._pipe.send(self.state)
+
+    def on_enter_CONTROL(self):
+        pass
+
+    def on_enter_UPDATE(self):
+        print(self.list_robots.get_status())

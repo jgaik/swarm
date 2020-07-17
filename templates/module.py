@@ -126,6 +126,7 @@ class BaseFSM(object):
         self._request = requests
         self._requirements = requirments
         self._th_requests = th.Thread(target=self._thread_read_requests)
+        self.state = None
 
     def start(self):
         self._online = True
@@ -142,3 +143,18 @@ class BaseFSM(object):
                     self._requirements.set_data(recv['name'], recv['data'])
                 else:
                     self._request.set_current(recv)
+
+    def send_data(self, data=None, name=None):
+        _data = {}
+        if name is None:
+            if data is None:
+                _data = self.state
+            else:
+                _data['state'] = self.state
+                _data['data'] = data
+        else:
+            _data['state'] = self.state
+            _data['name'] = name
+            if not data is None:
+                _data['data'] = data
+        self._pipe.send(_data)

@@ -566,7 +566,7 @@ class FSM(module.BaseFSM):
         self._ok = True
 
     def on_enter_END(self):
-        self._pipe.send(self.state)
+        self.send_data()
         self._request.wait_END()
         self._online = False
         self.root.destroy()
@@ -574,22 +574,11 @@ class FSM(module.BaseFSM):
     def on_enter_OPERATION(self):
         pass
 
-    def send_data(self, data=None):
-        if data is None:
-            self._pipe.send(self.state)
-        else:
-            _data = {
-                'state': self.state,
-                'data': data
-            }
-            self._pipe.send(_data)
-
     def event_setup(self):
         if self.gui_setup.start():
-            self._pipe.send({
-                'name': __name__,
-                'data': self.gui_setup.data()
-            })
+            self.send_data(data=self.gui_setup.data(), name=__name__)
+        else:
+            pass
 
     def event_end(self):
         self.to_END()
@@ -599,3 +588,4 @@ class FSM(module.BaseFSM):
 
     def event_start(self):
         data = self.gui_main.getData()
+        self.send_data(data=data)

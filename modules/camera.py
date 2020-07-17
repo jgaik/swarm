@@ -122,9 +122,10 @@ class FSM(module.BaseFSM):
                                     conditions=self.request_END)
 
     def on_enter_IDLE(self):
-        self._pipe.send(self.state)
+        self.send_data()
 
     def on_enter_INIT(self):
+        self.send_data(name=__name__)
         self._requirements.wait_gui()
         data_gui = self._requirements.get_data('gui')
         self._ok &= self.serverclient.connect(**data_gui)
@@ -135,7 +136,7 @@ class FSM(module.BaseFSM):
 
     def on_enter_END(self):
         self.serverclient.close()
-        self._pipe.send(self.state)
+        self.send_data()
 
     def on_enter_READ(self):
         self._request_new = False
@@ -143,4 +144,4 @@ class FSM(module.BaseFSM):
         if data == False:
             self._ok &= False
         else:
-            self._pipe.send(data)
+            self.send_data(data={'tasks': data})
