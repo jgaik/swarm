@@ -6,7 +6,8 @@ import serial.tools.list_ports as ports
 import enum
 import threading as th
 from collections.abc import Mapping
-from swarm.templates import module
+from swarm.shared import config
+from swarm.shared.templates import modules
 
 
 def validateFloatInput(input):
@@ -475,13 +476,13 @@ class GuiSetup:
         if (self.wSetup.state() == 'normal'):
             self.wSetup.withdraw()
 
-    def data(self):
+    def get_data(self):
         return {
-            'network': {
+            'setup_network': {
                 'port_num': self.port_num,
                 'port_baudrate': self.port_baudrate
             },
-            'camera': {
+            'setup_camera': {
                 'tcp_ip': self.tcp_ip,
                 'tcp_port': self.tcp_port
             }
@@ -496,23 +497,17 @@ class States(enum.Enum):
     END = enum.auto()
 
 
-class Requests(module.BaseRequests):
-    DONE = enum.auto()
-    END = enum.auto()
-    ERROR = enum.auto()
+class Requirements(modules.BaseRequirements):
+    datatags = ['tasks', 'ids', 'markers']
 
 
-class Requirements(module.BaseRequirements):
-    modulelist = ['tasks', 'network', 'camera']
-
-
-class FSM(module.BaseFSM):
+class FSM(modules.BaseFSM):
     #pylint: disable=no-member
     _ok = True
     _online = False
 
     def __init__(self, pipe):
-        super(FSM, self).__init__(pipe, Requests(), Requirements())
+        super(FSM, self).__init__(pipe, config.Request(), Requirements())
         self.root = tk.Tk()
         self._th_loop = th.Thread(target=self._thread_loop)
         self.gui_setup = GuiSetup(
@@ -520,8 +515,37 @@ class FSM(module.BaseFSM):
         self.gui_main = GuiMain(self.root, self.event_start)
         self.root.withdraw()
         self.root.protocol("WM_DELETE_WINDOW", self.event_end)
+
+        list_transitions = [
+            {
+                'trigger': 'change_state',
+                'source': 'none',
+                'dest': States.INIT,
+                'conditions': self._request.is_INIT
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.INIT,
+                'dest': States.IDLE,
+                'conditions': [self._requirements.have_tasks, self._requirements.have_ids],
+                'unless': self._ok
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.INIT,
+                'dest': States.ERROR,
+                'conditions': self._ok
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.INIT,
+                'dest': States.END,
+                'conditions': self._request.is_END
+            },
+        ]
         self.machine = transitions.Machine(model=self,
                                            states=States,
+                                           transitions=list_transitions,
                                            initial='none')
         self.machine.add_transition(trigger='change_state',
                                     source=States.INIT,
@@ -542,7 +566,6 @@ class FSM(module.BaseFSM):
                                     unless=self._request.is_ERROR)
 
     def _thread_loop(self):
-        self.to_INIT()
         while self._online:
             self.change_state()
 
@@ -553,20 +576,20 @@ class FSM(module.BaseFSM):
         self.root.mainloop()
 
     def on_enter_IDLE(self):
-        self.send_data()
+        self.send_response(config.Response.READY)
 
     def on_enter_INIT(self):
         self.gui_setup.show()
-        self._requirements.wait_data(['tasks', 'network'])
-        data = self._requirements.get_data(['tasks', 'network'])
-        self.gui_main.addTasks(data['tasks'])
-        self.gui_main.setIds(data['network'])
+
+    def on_exit_INIT(self):
         self.gui_setup.stop()
+        data = self._requirements.get_data(['tasks', 'ids'])
+        self.gui_main.addTasks(data['tasks'])
+        self.gui_main.setIds(data['ids'])
         self.root.deiconify()
-        self._ok = True
 
     def on_enter_END(self):
-        self.send_data()
+        self.send_response(config.Response.END)
         self._request.wait_END()
         self._online = False
         self.root.destroy()
@@ -576,16 +599,18 @@ class FSM(module.BaseFSM):
 
     def event_setup(self):
         if self.gui_setup.start():
-            self.send_data(data=self.gui_setup.data(), name=__name__)
+            self._ok &= True
+            self.send_response(config.Response.INIT, self.gui_setup.get_data())
         else:
-            pass
+            self._ok &= False
+            self.send_response(config.Response.ERROR)
 
     def event_end(self):
         self.to_END()
 
     def update(self):
-        self.gui_main.drawMarkers(self._requirements.get_data('camera'))
+        self.gui_main.drawMarkers(self._requirements.get_data('markers'))
 
     def event_start(self):
         data = self.gui_main.getData()
-        self.send_data(data=data)
+        self.send_response(config.Response.OK, data=data)

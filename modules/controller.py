@@ -1,69 +1,158 @@
-import server
-import robot
-import tasks
-import time
-import numpy as np
+import threading as th
+from collections.abc import Mapping
+import enum
+import transitions
+from swarm.shared import config
+from swarm.shared.templates.data import LockedData
 
-CODELIST = {
-	'Line': robot.ROBOTPATH_LINE,
-	'Turn': robot.ROBOTPATH_TURN,
-	'Arc': robot.ROBOTPATH_ARC,
-	'Velocity': robot.ROBOTPATH_VELOCITY
-}
 
-def marker():
-	markers = np.array([[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [181.5, 157.5, 0.0, 1.0], [0.0, 0.0, 0.0, 0.0], [208.75, 23.75, -1.8018869939907933, 1.0], [186.5, 119.5, -1.3854483767992019, 1.0], [0.0, 0.0, 0.0, 0.0], [222.0, 163.5, 1.508377516798939, 1.0], [181.0, 200.0, 2.6224465393432705, 1.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [88.75, 75.5, 0.5713374798336268, 1.0], [143.75, 178.25, -0.6947382761967034, 1.0], [128.75, 35.75, 0.540419500270584, 1.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [91.5, 231.25, -2.782821983319221, 1.0], [0.0, 0.0, 0.0, 0.0]])
-	markers[:,0]=markers[:,0]/362*200
-	markers[:,1]=(298-markers[:,1])/298*160
-	markers[:,0:3]=np.round(markers[:,0:3],3)
-	return markers.tolist()
+class ModuleData:
 
-class Controller():
+    def __init__(self):
+        self._lock = th.Lock()
+        self._data = {}
+        self._names = []
 
-	def __init__(self, netPort, netBaudrate, camIp, camPort):
-		self._online = False
-		self._active = False
-		self._swarm = robot.RobotNetwork(netPort, netBaudrate)
-		self._camera = server.Client(camIp, camPort)
-		self._markers = {}
-		self._commandReady = False
-		self._commandData = {}
+    def set(self, name, data):
+        new = False
+        with self._lock:
+            if not name in self._names:
+                new = True
+                self._names.append(name)
+        if new:
+            self._data[name] = LockedData(False, data)
+        else:
+            self._data[name].set(data)
 
-	def run(self):
-		with self._swarm, self._camera:
-			self._online = True
-			while self._active:
-				self._markers = self._camera.read(server.READ_MARKERS)['markers']
-				if self._commandReady:
-					if self._commandData['task'] == "Direct control":
-						self._commandData['data']['pathMode'] = CODELIST[self._commandData['data']['pathMode']]
-						self._swarm.setRobotVelocity(**self._commandData['data'])
-					if self._commandData['task'] == 'Parameters setting':
-						self._swarm.setRobotParameters(**self._commandData['data'])
-					self._commandReady = False
 
-		self._online = False
-	
-	def getMarkers(self) -> str:
-		return self._markers
+class Module:
 
-	def getIds(self):
-		return self._swarm.robotList.getIds()
+    def __init__(self, pipe):
+        self.name = ""
+        self.requirements = []
+        self.data = ModuleData()
 
-	def getIDs(self):
-		if self._online:
-			return self._swarm.robotList.getIds()
+        self._pipe = pipe
+        self._response = config.Response()
+        self._request = None
+        self._th_responses = th.Thread(target=self._thread_read_response)
+        self._senttags = []
+        self._active = False
+        self._lock = th.Lock()
 
-	def setData(self, data):
-		if not self._commandReady:
-			self._commandData = data
-			self._commandReady = True
+    def _thread_read_response(self):
+        while self._active:
+            if self._pipe.poll():
+                recv = self._pipe.recv()
+                if isinstance(recv, Mapping):
+                    if recv['response'] == config.Response.INIT:
+                        self.name = recv['name']
+                        self.requirements = recv['requirements']
+                    self._response.set_current(recv['response'])
+                    for (name, data) in recv['data']:
+                        self.data.set(name, data)
+                else:
+                    self._response.set_current(recv)
 
-	def isOnline(self):
-		return self._online
+    def activate(self):
+        self._active = True
+        self._th_responses.start()
 
-	def start(self):
-		self._active = True
+    def deactivate(self):
+        self._active = False
 
-	def stop(self):
-		self._active = False
+    def send_request(self, request, data=None):
+        self._request = request
+        if data is None:
+            self._pipe.send(request)
+        else:
+            self._pipe.send({
+                'request': request,
+                'data': data
+            })
+            with self._lock:
+                self._senttags.append(data.keys())
+
+    def update(self, updated_tag):
+        with self._lock:
+            try:
+                self._senttags.remove(updated_tag)
+            except:
+                pass
+
+    def is_response(self, response):
+        return getattr(self._response, "is_" + response.name)()
+
+
+class States(enum.Enum):
+    INIT = enum.auto()
+    IDLE = enum.auto()
+    END = enum.auto()
+    ERROR = enum.auto()
+
+
+class FSM:
+    # pylint: disable=no-member
+
+    def __init__(self, *pipes):
+        self._online = False
+        self.modules = []
+        for pipe in pipes:
+            self.modules.append(Module(pipe))
+
+        list_transitions = [
+            {
+                'trigger': 'change_state',
+                'source': 'none',
+                'dest': States.INIT,
+                'conditions': True
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.INIT,
+                'dest': States.IDLE,
+                'conditions': self.modules_ready,
+                'unless': self.module_error
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.INIT,
+                'dest': States.ERROR,
+                'conditions': self.module_error
+            },
+        ]
+
+        self.machine = transitions.Machine(model=self,
+                                           states=States,
+                                           initial='none',
+                                           transitions=list_transitions)
+
+    def start(self):
+        self._online = True
+        for m in self.modules:
+            m.activate()
+        while self._online:
+            self.change_state()
+
+    def on_enter_INIT(self):
+        for m in self.modules:
+            m.send_request(config.Request.INIT)
+
+    def modules_INIT_thread(self, module: Module):
+        while not module.is_response(config.Response.READY):
+            pass
+
+    def modules_response(self, response):
+        return all([m.is_response(response) for m in self.modules])
+
+    def modules_ready(self):
+        return self.modules_response(config.Response.READY)
+
+    def modules_end(self):
+        return self.modules_response(config.Response.END)
+
+    def module_response(self, response):
+        return any([m.is_response(response) for m in self.modules])
+
+    def module_error(self):
+        return self.module_response(config.Response.ERROR)

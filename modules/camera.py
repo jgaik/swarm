@@ -1,4 +1,5 @@
-from swarm.templates import module
+from swarm.shared import config
+from swarm.shared.templates import modules
 import socket
 import json
 import enum
@@ -11,10 +12,15 @@ HEADER_LEN = 10
 BUFFER_LEN = 16
 
 
-class ServerReadMethods(enum.Enum):
+class ServerRequest(enum.Enum):
     RESPONSE = '0'
     DATA = '1'
     CHECK = '2'
+
+
+class ServerResponse(enum.Enum):
+    OK = '1'
+    ERROR = '0'
 
 
 class Client:
@@ -63,85 +69,120 @@ class States(enum.Enum):
     END = enum.auto()
 
 
-class Requests(module.BaseRequests):
-    READ = enum.auto()
-    END = enum.auto()
+class Requirements(modules.BaseRequirements):
+    datatags = ['setup_camera']
 
 
-class Requirements(module.BaseRequirements):
-    modulelist = ['gui']
-
-
-class FSM(module.BaseFSM):
+class FSM(modules.BaseFSM):
     # pylint: disable=no-member
     _ok = True
 
     def __init__(self, pipe):
-        super(FSM, self).__init__(pipe, Requests(), Requirements())
+        super(FSM, self).__init__(pipe, config.Request(), Requirements())
         self.serverclient = Client()
+
+        list_transitions = [
+            {
+                'trigger': 'change_state',
+                'source': 'none',
+                'dest': States.INIT,
+                'conditions': self._request.is_INIT
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.INIT,
+                'dest': States.IDLE,
+                'conditions': self._ok,
+                'unless': self._request.is_END
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.INIT,
+                'dest': States.END,
+                'conditions': self._request.is_END
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.INIT,
+                'dest': States.ERROR,
+                'conditions': True,
+                'unless': self._ok
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.IDLE,
+                'dest': States.ERROR,
+                'conditions': True,
+                'unless': self._ok
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.ERROR,
+                'dest': States.END,
+                'conditions': self._request.is_END,
+                'unless': False
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.IDLE,
+                'dest': States.END,
+                'conditions': self._request.is_END,
+                'unless': False
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.IDLE,
+                'dest': States.READ,
+                'conditions': self._request.is_READ,
+                'unless': False
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.READ,
+                'dest': States.IDLE,
+                'conditions': self._ok,
+                'unless': False
+            },
+            {
+                'trigger': 'change_state',
+                'source': States.READ,
+                'dest': States.ERROR,
+                'conditions': True,
+                'unless': self._ok
+            }
+        ]
 
         self.machine = transitions.Machine(model=self,
                                            states=States,
+                                           transitions=list_transitions,
                                            initial='none')
 
-        self.machine.add_transition(trigger='change_state',
-                                    source=States.INIT,
-                                    dest=States.IDLE,
-                                    conditions='_ok')
-
-        self.machine.add_transition(trigger='change_state',
-                                    source=States.INIT,
-                                    dest=States.ERROR,
-                                    unless='_ok')
-
-        self.machine.add_transition(trigger='change_state',
-                                    source=States.IDLE,
-                                    dest=States.END,
-                                    conditions=self._request.is_END,
-                                    unless='_ok')
-
-        self.machine.add_transition(trigger='change_state',
-                                    source=States.IDLE,
-                                    dest=States.READ,
-                                    conditions=self._request.is_READ,
-                                    unless='_ok')
-
-        self.machine.add_transition(trigger='change_state',
-                                    source=States.READ,
-                                    dest=States.IDLE,
-                                    conditions='_ok')
-
-        self.machine.add_transition(trigger='change_state',
-                                    source=States.READ,
-                                    dest=States.ERROR,
-                                    unless='_ok')
-
-        self.machine.add_transition(trigger='change_state',
-                                    source=States.ERROR,
-                                    dest=States.END,
-                                    conditions=self.request_END)
-
     def on_enter_IDLE(self):
-        self.send_data()
+        self.send_response(config.Response.READY)
 
     def on_enter_INIT(self):
-        self.send_data(name=__name__)
-        self._requirements.wait_gui()
-        data_gui = self._requirements.get_data('gui')
-        self._ok &= self.serverclient.connect(**data_gui)
-        self._ok &= int(self.serverclient.read(ServerReadMethods.CHECK))
+        self.send_response(config.Response.INIT)
+        self._request.wait_new()
+        if self._requirements.have_data('setup_camera'):
+            data = self._requirements.get_data('setup_camera')
+            if not self.serverclient.connect(**data):
+                self._ok = False
+                return
+            if self.serverclient.read(ServerRequest.CHECK) == ServerResponse.ERROR:
+                self._ok = False
+                return
 
     def on_enter_ERROR(self):
-        self._pipe.send(self.state)
+        self.send_response(config.Response.ERROR)
 
     def on_enter_END(self):
         self.serverclient.close()
-        self.send_data()
+        self.send_response(config.Response.OK)
 
     def on_enter_READ(self):
-        self._request_new = False
-        data = self.serverclient.read(ServerReadMethods.DATA)
+        data = self.serverclient.read(ServerRequest.DATA)
         if data == False:
             self._ok &= False
+            self.send_response(config.Response.ERROR)
         else:
-            self.send_data(data={'tasks': data})
+            self.send_response(config.Response.OK, {'tasks': data})

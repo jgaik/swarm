@@ -1,12 +1,23 @@
-from collections.abc import Mapping
-import transitions
 import enum
-from swarm.templates import module
-import time
 from typing import List
 import threading as th
-import digi.xbee.devices as xb
 import struct
+import transitions
+import digi.xbee.devices as xb
+from swarm.shared import config
+from swarm.shared.templates import modules
+
+
+class RobotParameters:
+
+    def __init__(self, distance=None, radiusLeft=None, radiusRight=None, pid=None):
+        self.distance = distance
+        self.radiusLeft = radiusLeft
+        self.radiusRight = radiusRight
+        self.pid = pid
+
+    def __iter__(self):
+        yield from [self.distance, self.radiusLeft, self.radiusRight, self.pid]
 
 
 class RobotPath(enum.Enum):
@@ -66,8 +77,8 @@ class Robot:
     device = None
     status = -1
 
-    def __init__(self, id, device):
-        self.id = id
+    def __init__(self, robot_id, device):
+        self.id = robot_id
         self.device = device
         self.status = RobotStatus.INIT
         self.buffer = ''
@@ -94,15 +105,15 @@ class RobotList:
 
     def add_robot(self, xbeeDevice: xb.RemoteXBeeDevice):
         if not self.check_id(xbeeDevice.get_16bit_addr().get_lsb()):
-            id = xbeeDevice.get_16bit_addr().get_lsb()
-            self.robots[id] = Robot(id, xbeeDevice)
+            robot_id = xbeeDevice.get_16bit_addr().get_lsb()
+            self.robots[id] = Robot(robot_id, xbeeDevice)
             print(
                 f"[Xbee Network]: Robot {xbeeDevice.get_16bit_addr().get_lsb()} added to list")
 
     def add_robots(self, xbeeList: List[xb.RemoteXBeeDevice]):
         for dev in xbeeList:
-            id = dev.get_16bit_addr().get_lsb()
-            self.robots[id] = Robot(id, dev)
+            robot_id = dev.get_16bit_addr().get_lsb()
+            self.robots[id] = Robot(robot_id, dev)
 
     def get_robot_status(self, robotId):
         try:
@@ -144,6 +155,8 @@ class RobotNetwork:
 
     def __init__(self, robotlist):
         self.robotList = robotlist
+        self.xbDevice = None
+        self.xbNet = None
 
     def connect(self, portnum, baudrate):
         print("[Xbee network]: Initialising..")
@@ -158,7 +171,7 @@ class RobotNetwork:
             self.xbNet.start_discovery_process()
             while self.xbNet.is_discovery_running():
                 pass
-            print(f"[Xbee Network]: Initialisation finished.")
+            print("[Xbee Network]: Initialisation finished.")
             return True
         except:
             return False
@@ -169,12 +182,12 @@ class RobotNetwork:
         print("[Xbee Network]: Connection closed.")
 
     def __updateNetworkThread(self):
-        if self.xbDevice._is_open:
-            print(f"[Xbee Network]: Network discovery process started.")
+        if self.xbDevice.is_open():
+            print("[Xbee Network]: Network discovery process started.")
             while self.xbNet.is_discovery_running():
                 pass
         else:
-            print(f"[Xbee Network]: !!!Controller device not open!!!")
+            print("[Xbee Network]: !!!Controller device not open!!!")
 
     def __sendData(self, data, robotID):
         msg = Message(robotID, data["mode"], data["params"])
@@ -193,15 +206,15 @@ class RobotNetwork:
                 return False
 
     def __callbackDataRecv(self, xbeeMsg: xb.XBeeMessage):
-        id = xbeeMsg.remote_device.get_16bit_addr().get_lsb()
+        idx = xbeeMsg.remote_device.get_16bit_addr().get_lsb()
         msg = xbeeMsg.data.decode('utf-8')
-        self.robotList.update_robot(id, msg)
+        self.robotList.update_robot(idx, msg)
 
     def __callbackDeviceFound(self, xbeeRemote: xb.RemoteXBeeDevice):
-        id = xbeeRemote.get_16bit_addr().get_lsb()
-        print(f"[Xbee Network]: Robot {id} found")
+        idx = xbeeRemote.get_16bit_addr().get_lsb()
+        print(f"[Xbee Network]: Robot {idx} found")
         self.robotList.add_robot(xbeeRemote)
-        self.setRobotParameters(id)
+        self.setRobotParameters(idx)
 
     def setRobotVelocity(self, robotID, pathMode, pathParameters):
         """
@@ -216,8 +229,8 @@ class RobotNetwork:
         if pathMode == RobotPath.ARC:
             assert (len(pathParameters) ==
                     3), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
-            assert (
-                pathParameters[2] != 0), f"[Xbee Network]: !!!Incorect parameter - arc radius cannot be 0!!!"
+            assert (pathParameters[2] !=
+                    0), "[Xbee Network]: !!!Incorect parameter - arc radius cannot be 0!!!"
         if pathMode == RobotPath.LINE:
             assert (len(pathParameters) ==
                     2), f"[Xbee Network]: !!!Wrong number of path parameters ({pathParameters})!!!"
@@ -232,12 +245,12 @@ class RobotNetwork:
             "params": []
         }
 
-        for pIdx in range(len(pathParameters)):
-            data["params"].append([pIdx, pathParameters[pIdx]])
+        for pIdx, pParams in enumerate(pathParameters):
+            data["params"].append([pIdx, pParams])
 
         return self.__sendData(data, robotID)
 
-    def setRobotParameters(self, robotID, distance=None, radiusLeft=None, radiusRight=None, pid=None):
+    def setRobotParameters(self, robotID, robotParams=None):
         """
         Set parameters of the 'robotID' robot
         :param distance: distance between the centers of the wheels
@@ -245,26 +258,26 @@ class RobotNetwork:
         :param radiusRight: radius of the right wheel
         :param pid: list of pid controller gain values [kp, ki, kd]
         """
-
+        (distance, radiusLeft, radiusRight, pid) = robotParams
         data = {
             "mode": ROBOTMODE_INIT,
             "params": []
         }
-        if (distance is not None):
+        if distance is not None:
             assert (
-                distance > 0), f"[Xbee Network]: !!!Wheel distance must be bigger than 0!!!"
+                distance > 0), "[Xbee Network]: !!!Wheel distance must be bigger than 0!!!"
             data["params"].append([0, distance])
-        if (radiusLeft is not None):
+        if radiusLeft is not None:
             assert (
-                radiusLeft > 0), f"[Xbee Network]: !!!Wheel radius must be bigger than 0!!!"
+                radiusLeft > 0), "[Xbee Network]: !!!Wheel radius must be bigger than 0!!!"
             data["params"].append([1, radiusLeft])
-        if (radiusRight is not None):
+        if radiusRight is not None:
             assert (
-                radiusRight > 0), f"[Xbee Network]: !!!Wheel radius must be bigger than 0!!!"
+                radiusRight > 0), "[Xbee Network]: !!!Wheel radius must be bigger than 0!!!"
             data["params"].append([2, radiusRight])
-        if (pid is not None):
+        if pid is not None:
             assert (len(
-                pid) == 3), f"[Xbee Network]: !!!PID controller parameters must be of length 3!!!"
+                pid) == 3), "[Xbee Network]: !!!PID controller parameters must be of length 3!!!"
             for val in range(3):
                 data["params"].append([val + 3, pid[val]])
 
@@ -280,24 +293,26 @@ class States(enum.Enum):
     END = enum.auto()
 
 
-class Requests(module.BaseRequests):
-    END = enum.auto()
+class Requirements(modules.BaseRequirements):
+    datatags = ['setup_network']
 
 
-class Requirements(module.BaseRequirements):
-    modulelist = ['gui']
-
-
-class FSM(module.BaseFSM):
-    #pylint: disable=no-member
+class FSM(modules.BaseFSM):
+    # pylint: disable=no-member
     _ok = True
 
     def __init__(self, pipe):
-        super(FSM, self).__init__(pipe, Requests(), Requirements())
-        self.list_robots = RobotList()
-        self.network = RobotNetwork(self.list_robots)
+        super(FSM, self).__init__(pipe, config.Request(), Requirements())
+        self.robotlist = RobotList()
+        self.network = RobotNetwork(self.robotlist)
 
         list_transitions = [
+            {
+                'trigger': 'change_state',
+                'source': 'none',
+                'dest': States.INIT,
+                'conditions': self._request.is_INIT,
+            },
             {
                 'trigger': 'change_state',
                 'source': States.INIT,
@@ -351,7 +366,7 @@ class FSM(module.BaseFSM):
                 'trigger': 'change_state',
                 'source': States.IDLE,
                 'dest': States.UPDATE,
-                'conditions': self.list_robots.is_updated,
+                'conditions': self.robotlist.is_updated,
                 'unless': False
             },
             {
@@ -369,22 +384,25 @@ class FSM(module.BaseFSM):
                                            initial='none')
 
     def on_enter_INIT(self):
-        self._requirements.wait_gui()
-        data_gui = self._requirements.get_data('gui')
-        self._ok &= self.network.connect(**data_gui)
+        self.send_response(config.Response.INIT)
+        self._request.wait_new()
+        if self._requirements.have_data('setup_camera'):
+            data = self._requirements.get_data('setup_newtowrk')
+            if not self.network.connect(**data):
+                self._ok = False
 
     def on_enter_END(self):
         self.network.disconnect()
-        self.send_data()
+        self.send_response(config.Response.END)
 
     def on_enter_ERROR(self):
-        self.send_data()
+        self.send_response(config.Response.ERROR)
 
     def on_enter_IDLE(self):
-        self._pipe.send(self.state)
+        self.send_response(config.Response.READY)
 
     def on_enter_CONTROL(self):
         pass
 
     def on_enter_UPDATE(self):
-        print(self.list_robots.get_status())
+        print(self.robotlist.get_status())

@@ -3,6 +3,10 @@
     "python.formatting.provider": "autopep8",
     "python.linting.pylintEnabled": true,
     "python.linting.enabled": true,
+    "python.linting.pylintArgs": [
+        "--disable",
+        "missing-class-docstring, missing-function-docstring, missing-module-docstring, invalid-name, bare-except"
+    ],
     "[python]": {
         "editor.insertSpaces": true,
         "editor.tabSize": 4
